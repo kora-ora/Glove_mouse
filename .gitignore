@@ -1,0 +1,13 @@
+# Arduino IDE temporary build files
+build/
+*.bin
+*.elf
+*.hex
+
+# VS Code / PlatformIO
+.vscode/
+.pio/
+
+# OS specific
+Thumbs.db
+.DS_Store

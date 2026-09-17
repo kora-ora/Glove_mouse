@@ -1,0 +1,174 @@
+# 🧤 ESP32 + MPU6050 Glove Air Mouse (FreeRTOS Dual-Core)
+
+โปรเจกต์พัฒนาระบบควบคุมเคอร์เซอร์เมาส์ไร้สายแบบสวมมือ (Air Mouse Glove) ผ่าน Bluetooth Low Energy (BLE HID) โดยใช้ไมโครคอนโทรลเลอร์ **ESP32** ร่วมกับเซนเซอร์วัดความเคลื่อนไหว **MPU6050** บนสถาปัตยกรรม **FreeRTOS Dual-Core**
+
+---
+
+## 📌 สารบัญ (Table of Contents)
+1. [ภาพรวมของระบบ (Overview)](#-ภาพรวมของระบบ-overview)
+2. [สถาปัตยกรรม FreeRTOS Dual-Core](#-สถาปัตยกรรม-freertos-dual-core)
+3. [การเชื่อมต่อฮาร์ดแวร์ (Hardware Pinout)](#-การเชื่อมต่อฮาร์ดแวร์-hardware-pinout)
+4. [หลักการประมวลผลการเคลื่อนไหว (Motion Processing Pipeline)](#-หลักการประมวลผลการเคลื่อนไหว-motion-processing-pipeline)
+5. [โครงสร้างไฟล์และแนวทางการอ่านโค้ด (Codebase Structure)](#-โครงสร้างไฟล์และแนวทางการอ่านโค้ด-codebase-structure)
+6. [คู่มือการติดตั้งและการใช้งาน (Setup & Usage)](#-คู่มือการติดตั้งและการใช้งาน-setup--usage)
+7. [การปรับจูนพารามิเตอร์ (Tuning Parameters)](#-การปรับจูนพารามิเตอร์-tuning-parameters)
+8. [แผนการต่อยอดในอนาคต (Roadmap)](#-แผนการต่อยอดในอนาคต-roadmap)
+
+---
+
+## 🚀 ภาพรวมของระบบ (Overview)
+
+โปรเจกต์นี้เปลี่ยนการเคลื่อนไหวของข้อมือในอากาศให้กลายเป็นการเคลื่อนที่ของเคอร์เซอร์เมาส์บนหน้าจอคอมพิวเตอร์อย่างเป็นธรรมชาติ:
+* **Gyroscope Mode:** ใช้ความเร็วเชิงมุม (Angular Velocity: rad/s) ของการหมุนข้อมือในการเลื่อนเคอร์เซอร์ ขยับเร็วเมาส์ไปเร็ว ขยับช้าเมาส์ไปช้า และหยุดนิ่งทันทีเมื่อข้อมืออยู่นิ่ง
+* **Direct I2C Driver:** พัฒนาไดรเวอร์ติดต่อกับ MPU6050 ด้วยรีจิสเตอร์โดยตรง ไม่พึ่งพาไลบรารีภายนอกที่ติดปัญหาล็อค Device ID ทำให้รองรับชิป MPU6050 และ Revision ทุกเกรดในท้องตลาด 100%
+* **Bluetooth BLE HID:** จำลองตัวเป็นเมาส์มาตรฐาน ทำงานได้กับ Windows, macOS, Linux, และ Android โดยไม่ต้องลงไดรเวอร์เสริมที่คอมพิวเตอร์
+
+---
+
+## 🧠 สถาปัตยกรรม FreeRTOS Dual-Core
+
+ระบบถูกออกแบบให้ใช้ขุมพลัง **2 แกนสมอง (Dual-Core)** ของชิป ESP32 อย่างเต็มประสิทธิภาพ โดยแยกงานที่มีความสำคัญด้านเวลา (Time-critical) ออกจากงานสื่อสารไร้สาย (Wireless Stack):
+
+```mermaid
+flowchart TD
+    subgraph Core1 ["🖥️ Core 1 : TaskSensor (Priority 2)"]
+        A["MPU6050 Driver\nอ่านค่า Gyro X, Y, Z"] --> B["Motion Processor\nหัก Offset + Deadzone + Scaling"]
+        B --> C["MousePacket {dx, dy, buttons}"]
+    end
+
+    subgraph IPC ["📦 FreeRTOS Inter-Task Queue"]
+        C -- "xQueueSend(0 wait)" --> Q[("mouseQueue\n(Queue Length: 10)")]
+    end
+
+    subgraph Core0 ["📡 Core 0 : TaskBleMouse (Priority 1)"]
+        Q -- "xQueueReceive(Block)" --> D["อ่าน Packet จาก Queue"]
+        D --> E{"BLE เชื่อมต่ออยู่?"}
+        E -- ใช่ --> F["bleMouse.move(dx, dy)"]
+        E -- ไม่ใช่ --> G["พักรอการเชื่อมต่อ"]
+        F -. ส่งข้อมูล .-> H["NimBLE Stack Engine"]
+    end
+```
+
+### รายละเอียดของแต่ละ Task:
+1. **`TaskSensor` (Core 1):**
+   * ทำงานด้วยรอบเวลาที่แม่นยำสูงระดับฮาร์ดแวร์ผ่าน `vTaskDelayUntil()` ทุก **10ms (100 Hz)**
+   * อ่านค่าเชิงมุม $\rightarrow$ ลบ Drift Offset $\rightarrow$ กรองการสั่น $\rightarrow$ แพ็กเป็น `MousePacket` แล้วส่งเข้า Queue
+   * รับประกันว่าการอ่านเซนเซอร์จะไม่สะดุด แม้ระบบบลูทูธจะมีช่วงดีเลย์
+2. **`TaskBleMouse` (Core 0):**
+   * ทำงานร่วมกับแกนประมวลผล Bluetooth ภายในของ ESP32
+   * ใช้คำสั่ง `xQueueReceive()` แบบบล็อกรอ (`portMAX_DELAY`) คือถ้าไม่มีข้อมูลในคิว Task จะหลับไปทันที (0% CPU Usage) และตื่นขึ้นมาทำงานทันทีที่มีข้อมูลเข้ามา (Event-driven)
+
+---
+
+## 🔌 การเชื่อมต่อฮาร์ดแวร์ (Hardware Pinout)
+
+การต่อวงจรระหว่างบอร์ด **ESP32 (30-pin DevKit)** กับโมดูล **MPU6050 (GY-521)**:
+
+| ขา MPU6050 | ขา ESP32 | คำอธิบาย |
+|:---:|:---:|---|
+| **VCC** | **3.3V หรือ 5V** | หากเป็นโมดูล GY-521 ที่มีชิปเรกูเลเตอร์ 3.3V ในตัว แนะนำต่อ 5V |
+| **GND** | **GND** | กราวด์ร่วมของระบบ |
+| **SDA** | **GPIO 21** | I2C Data Line (มีระบบดึงสัญญาณที่ 400 kHz) |
+| **SCL** | **GPIO 22** | I2C Clock Line |
+| **AD0** | **GND** | กำหนดให้ Address หลักเป็น `0x68` (หากลอยไว้หรือต่อไฟจะเป็น `0x69`) |
+| **INT** | *ไม่ได้ต่อ* | ไม่จำเป็นต้องใช้ในโหมด Polling |
+
+---
+
+## 📐 หลักการประมวลผลการเคลื่อนไหว (Motion Processing Pipeline)
+
+ขั้นตอนการแปลงสัญญาณความเร็วเชิงมุมจาก MPU6050 เป็นระยะขยับของเคอร์เซอร์บนหน้าจอ:
+
+```
+[Raw Gyro LSB] 
+      │
+      ▼  (หาร 65.5 และคูณ DEG_TO_RAD)
+[Angular Velocity (rad/s)]
+      │
+      ▼  (หักลบ Offset จากการ Calibrate)
+[Calibrated Velocity (velX, velY)]
+      │
+      ▼  (ตรวจเงื่อนไข |vel| < DEADZONE -> เซ็ตเป็น 0)
+[Deadzoned Velocity]
+      │
+      ▼  (คูณ SENSITIVITY_X / Y)
+[Scaled Delta Pixels]
+      │
+      ▼  (กลับด้านแกนตาม INVERT_X / Y)
+[Inverted Delta]
+      │
+      ▼  (จำกัดช่วงด้วย constrain(-127, 127))
+[Clamped int8_t dx, dy] -> ส่งต่อไปยัง BLE HID
+```
+
+1. **Auto-Calibration:** ตอนเปิดระบบจะเก็บข้อมูล 200 ตัวอย่างตอนมือนิ่ง เพื่อหาค่า Drift ประจำตัวของชิป แล้วนำมาหักลบออก
+2. **Deadzone Filter:** ตัดการสั่นไหวขนาดเล็กของมือขณะพยายามอยู่นิ่ง (ค่ามาตรฐาน: `0.06 rad/s`)
+3. **Axis Mapping:**
+   * **เลื่อนแนวนอน (X บนจอ):** ใช้การบิดข้อมือซ้าย-ขวาในแนวราบ (Yaw: แกน **Z**)
+   * **เลื่อนแนวตั้ง (Y บนจอ):** ใช้การกระดกข้อมือก้ม-เงย (Pitch: แกน **Y**)
+4. **Clamping Safety:** ป้องกันตัวเลขล้นประเภทข้อมูล `int8_t` ของมาตรฐาน HID Mouse ด้วยคำสั่ง `constrain()`
+
+---
+
+## 📂 โครงสร้างไฟล์และแนวทางการอ่านโค้ด (Codebase Structure)
+
+เพื่อความเข้าใจในการพัฒนา แนะนำให้อ่านไฟล์เรียงตามลำดับ 5 ขั้นตอนดังนี้:
+
+| ลำดับ | ไฟล์ | หน้าที่และความรับผิดชอบ |
+|:---:|---|---|
+| **1** | [`Config.h`](file:///c:/Users/pingp/Arduino/GloveMouse/Config.h) | **จุดรวมการตั้งค่าทั้งหมด:** พิน I2C, ความไวเมาส์, Deadzone, ทิศทางแกน, และพารามิเตอร์ FreeRTOS |
+| **2** | [`MouseTypes.h`](file:///c:/Users/pingp/Arduino/GloveMouse/MouseTypes.h) | **โครงสร้างข้อมูล:** ประกาศ struct `MousePacket` ที่ใช้ส่งข้าม Task ผ่าน Queue |
+| **3** | [`MPU6050Driver.h`](file:///c:/Users/pingp/Arduino/GloveMouse/MPU6050Driver.h)<br>[`MPU6050Driver.cpp`](file:///c:/Users/pingp/Arduino/GloveMouse/MPU6050Driver.cpp) | **ไดรเวอร์ฮาร์ดแวร์:** สื่อสารกับรีจิสเตอร์ของ MPU6050 โดยตรง, ปลุกชิป, สลับ Address สำรองอัตโนมัติ, และคำนวณ Offset |
+| **4** | [`MotionProcessor.h`](file:///c:/Users/pingp/Arduino/GloveMouse/MotionProcessor.h)<br>[`MotionProcessor.cpp`](file:///c:/Users/pingp/Arduino/GloveMouse/MotionProcessor.cpp) | **ระบบคำนวณการเคลื่อนไหว:** รับค่าเชิงมุมดิบมาผ่านฟิลเตอร์ Deadzone และคำนวณออกมาเป็นระยะพิกเซล $dx, dy$ |
+| **5** | [`GloveMouse.ino`](file:///c:/Users/pingp/Arduino/GloveMouse/GloveMouse.ino) | **จุดเริ่มต้นระบบ (Main RTOS):** สร้าง Queue, แบ่ง Task ลง Core 0 / Core 1, และสั่งทำงานระบบ |
+
+---
+
+## 🛠️ คู่มือการติดตั้งและการใช้งาน (Setup & Usage)
+
+### 1. ติดตั้งไลบรารีที่จำเป็นใน Arduino IDE
+เปิด Arduino IDE ไปที่ **Sketch** $\rightarrow$ **Include Library** $\rightarrow$ **Manage Libraries...**:
+1. ติดตั้ง **`NimBLE-Arduino`** (เวอร์ชัน `2.1.0` หรือใหม่กว่า โดย `h2zero`)
+2. ติดตั้ง **`ESP32-NimBLE-Mouse`** (โดย `wakwak-koba`)
+
+### 2. การตั้งค่าบอร์ด
+1. ไปที่เมนู **Tools** $\rightarrow$ **Board** $\rightarrow$ เลือก **ESP32 Dev Module**
+2. เลือกพอร์ต COM ที่เชื่อมต่อกับ ESP32
+
+### 3. การอัปโหลดและการเชื่อมต่อ
+1. กดปุ่ม **Upload**
+2. เปิด **Serial Monitor** (ตั้งค่า Baud rate: `115200`)
+3. **วางถุงมือ/เซนเซอร์ให้นิ่งประมาณ 2 วินาที** ขณะระบบขึ้นข้อความ `[CALIBRATION]`
+4. เปิด Bluetooth บนคอมพิวเตอร์ $\rightarrow$ เลือกค้นหาอุปกรณ์ใหม่ $\rightarrow$ เลือกเชื่อมต่อกับ **"Glove Air Mouse"**
+5. เมื่อเชื่อมต่อสำเร็จ สามารถเริ่มขยับมือเพื่อควบคุมเมาส์ได้ทันที
+
+---
+
+## ⚙️ การปรับจูนพารามิเตอร์ (Tuning Parameters)
+
+สามารถปรับจูนความรู้สึกในการใช้งานได้ง่ายๆ ผ่านไฟล์ [`Config.h`](file:///c:/Users/pingp/Arduino/GloveMouse/Config.h):
+
+```cpp
+// ปรับความเร็วของเคอร์เซอร์ (ยิ่งมากยิ่งเร็ว)
+constexpr float SENSITIVITY_X = 25.0f;
+constexpr float SENSITIVITY_Y = 25.0f;
+
+// ปรับค่าตัดอาการมือสั่น (ถ้าเคอร์เซอร์ยังกระตุกตอนอยู่นิ่ง ให้เพิ่มค่านี้ เช่น 0.08 - 0.10)
+constexpr float DEADZONE = 0.06f;
+
+// สลับทิศทางหากเคอร์เซอร์เลื่อนตรงข้ามกับมือ
+constexpr bool INVERT_X = false; // true = สลับซ้าย-ขวา
+constexpr bool INVERT_Y = true;  // true = สลับขึ้น-ลง
+```
+
+---
+
+## 🗺️ แผนการต่อยอดในอนาคต (Roadmap)
+
+โครงสร้างโค้ดแบบ FreeRTOS ปัจจุบันถูกเตรียมพร้อมสำหรับการเพิ่มฟังก์ชันเหล่านี้ได้ทันที:
+* [ ] **Clutch Switch (ปุ่มตัดการทำงานชั่วคราว):** ปิดการส่งค่าชั่วคราวเพื่อให้ผู้ใช้สามารถยกมือกลับมาตำแหน่งตั้งต้นได้
+* [ ] **Flex Sensors (ตรวจจับการงอนิ้ว):**
+  * นิ้วชี้งอ $\rightarrow$ คลิกซ้าย (Left Click)
+  * นิ้วกลางงอ $\rightarrow$ คลิกขวา (Right Click)
+* [ ] **Gesture Recognition:** ตรวจจับท่าทางการสะบัดมือสำหรับการ Scroll หรือ Back / Forward หน้าเว็บ
+* [ ] **Battery Management:** อ่านระดับแรงดันแบตเตอรี่แล้วรายงานกลับไปยังคอมพิวเตอร์ผ่าน BLE HID Battery Service
