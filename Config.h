@@ -45,6 +45,8 @@ namespace Config {
   // Core ID (ESP32: Core 0 ดูแล WiFi/BT, Core 1 ดูแลงานทั่วไป)
   constexpr BaseType_t CORE_SENSOR_TASK    = 1;
   constexpr BaseType_t CORE_BLE_TASK       = 0;
+
+  constexpr uint8_t intterrupt_pin = 4;
 }
 
 #endif // CONFIG_H

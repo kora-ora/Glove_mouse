@@ -17,6 +17,13 @@ BleMouse        bleMouse("Glove Air Mouse", "ESP32", 100);
 QueueHandle_t mouseQueue = nullptr;
 TaskHandle_t  taskSensorHandle = nullptr;
 TaskHandle_t  taskBleHandle = nullptr;
+SemaphoreHandle_t MPUSemaphore;
+
+void IRAM_ATTR NewDataFromMPU(){
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+  xSemaphoreGiveFromISR(MPUSemaphore, &xHigherPriorityTaskWoken);
+  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
 
 // =============================================================================
 // FreeRTOS Task 1: SENSOR & MOTION TASK (ทำงานบน Core 1)
@@ -32,17 +39,18 @@ void TaskSensor(void *pvParameters) {
     // กำหนดรอบการทำงานอย่างแม่นยำ (Deterministic Periodic Execution: 100 Hz)
     vTaskDelayUntil(&xLastWakeTime, xPeriod);
 
-    float gx, gy, gz;
-    if (mpu.readGyro(gx, gy, gz)) {
-      MousePacket packet = motion.process(gx, gy, gz, mpu);
+    if (xSemaphoreTake(MPUSemaphore, portMAX_DELAY) == pdTRUE){
+      float gx, gy, gz;
+      if (mpu.readGyro(gx, gy, gz)) {
+        MousePacket packet = motion.process(gx, gy, gz, mpu);
 
-      // ส่งข้อมูลเข้า Queue เมื่อมีการขยับหรือมีการกดปุ่ม
-      if (packet.dx != 0 || packet.dy != 0 || packet.buttons != 0) {
-        // ส่งเข้า Queue แบบ Non-blocking (ticksToWait = 0) หากคิวเต็มจะไม่ค้างรอ
-        xQueueSend(mouseQueue, &packet, 0);
+        // ส่งข้อมูลเข้า Queue เมื่อมีการขยับหรือมีการกดปุ่ม
+        if (packet.dx != 0 || packet.dy != 0 || packet.buttons != 0) {
+          // ส่งเข้า Queue แบบ Non-blocking (ticksToWait = 0) หากคิวเต็มจะไม่ค้างรอ
+          xQueueSend(mouseQueue, &packet, 0);
+        }
       }
     }
-
     // [จุดต่อยอดในอนาคต]: เรียกฟังก์ชันอ่าน Flex Sensor หรือ Clutch Button ใน Task นี้
   }
 }
@@ -89,6 +97,12 @@ void setup() {
   // 1. เริ่มต้นระบบ I2C Bus
   Wire.begin(Config::PIN_SDA, Config::PIN_SCL);
   Wire.setClock(Config::I2C_CLOCK_SPEED);
+
+  //ตั้งค่า interrupt จาก MPU
+  MPUSemaphore = xSemaphoreCreateBinary();
+  pinMode(Config::intterrupt_pin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(Config::intterrupt_pin), NewDataFromMPU , RISING); //รับ intterrupt จาก MPU6050 
+  enableInterrupt(4);
 
   // 2. เริ่มต้นและ Calibrate เซนเซอร์ MPU6050
   while (!mpu.begin(Config::MPU_DEFAULT_ADDR)) {
