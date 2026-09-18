@@ -36,6 +36,16 @@ bool MPU6050Driver::begin(uint8_t preferredAddress) {
   return true;
 }
 
+void MPU6050Driver::enableInterrupt() {
+  // INT_ENABLE (0x38): เปิด Data Ready Interrupt (bit 0 = 1)
+  // ทำให้ขา INT ของ MPU6050 ส่งสัญญาณ RISING ทุกครั้งที่ข้อมูลใหม่พร้อมอ่าน
+  writeRegister(0x38, 0x01);
+  // INT_PIN_CFG (0x37): กำหนดให้ขา INT เป็น Active High, Push-Pull, Auto-clear เมื่อถูกอ่าน
+  writeRegister(0x37, 0x00);
+  Serial.println("✅ [MPU6050] Data Ready Interrupt เปิดใช้งานแล้ว");
+}
+
+
 void MPU6050Driver::calibrate(uint16_t samples) {
   Serial.println("\n[CALIBRATION] กรุณาวางถุงมือให้นิ่ง 2 วินาที...");
   delay(1000);

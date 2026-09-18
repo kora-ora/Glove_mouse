@@ -18,6 +18,9 @@ public:
   // อ่านความเร็วเชิงมุม (rad/s)
   bool readGyro(float &gx, float &gy, float &gz) const;
 
+  // เปิดสัญญาณ Interrupt บนชิป MPU6050 (ส่งสัญญาณที่ขา INT ทุกครั้งที่มีข้อมูลใหม่)
+  void enableInterrupt();
+
   // ค่า Offset ของ Gyroscope
   float offsetX;
   float offsetY;

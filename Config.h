@@ -12,6 +12,7 @@ namespace Config {
   constexpr uint32_t I2C_CLOCK_SPEED    = 400000;  // 400kHz Fast Mode
   constexpr uint8_t  MPU_DEFAULT_ADDR   = 0x68;
   constexpr uint8_t  MPU_BACKUP_ADDR    = 0x69;
+  constexpr uint8_t  INTERRUPT_PIN      = 4;        // ขา INT ของ MPU6050 → GPIO 4
 
   // ==========================================
   // 2. การปรับแต่งความไวและการเคลื่อนที่ของเมาส์
@@ -31,7 +32,7 @@ namespace Config {
   // ==========================================
   // 4. FreeRTOS Tasks และ คิวข้อมูล (Queue)
   // ==========================================
-  constexpr uint32_t SENSOR_SAMPLE_RATE_MS = 10;   // อ่านเซนเซอร์ทุก 10ms (100 Hz)
+  constexpr uint32_t SENSOR_SAMPLE_RATE_MS = 10;   // อ่านเซนเซอร์ทุก 10ms (100 Hz) (ใช้เมื่อไม่ใช้ interrupt)
   constexpr UBaseType_t QUEUE_LENGTH       = 10;   // ขนาดบัฟเฟอร์ของคิวส่งข้อมูลเมาส์
 
   // Stack Sizes (หน่วยเป็น Words ใน ESP32 FreeRTOS, 1 word = 4 bytes)
@@ -46,7 +47,17 @@ namespace Config {
   constexpr BaseType_t CORE_SENSOR_TASK    = 1;
   constexpr BaseType_t CORE_BLE_TASK       = 0;
 
-  constexpr uint8_t intterrupt_pin = 4;
+  // ==========================================
+  // 5. Flex Sensor (นิ้วชี้ = Left Click, นิ้วกลาง = Right Click)
+  // ==========================================
+  constexpr uint8_t  PIN_FLEX_INDEX        = 34;   // ADC1 เท่านั้น (ADC2 ชนกับ WiFi/BLE)
+  constexpr uint8_t  PIN_FLEX_MIDDLE       = 35;
+  constexpr uint16_t FLEX_CALIB_SAMPLES    = 200;  // baseline ครั้งเดียวตอน boot
+  constexpr uint16_t FLEX_CALIB_DELAY_MS   = 10;
+  constexpr int      FLEX_PRESS_MARGIN     = 300;  // ต้องปรับตามค่า ADC จริงจากเซนเซอร์
+  constexpr int      FLEX_RELEASE_MARGIN   = 150;  // < PRESS_MARGIN กันสัญญาณกระตุก
+  constexpr float    FLEX_FILTER_ALPHA     = 0.3f; // EMA กันสัญญาณแกว่ง
+  constexpr uint8_t  FLEX_DEBOUNCE_SAMPLES = 3;    // 3 samples * 10ms = 30ms
 }
 
 #endif // CONFIG_H

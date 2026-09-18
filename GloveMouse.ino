@@ -5,53 +5,61 @@
 #include "MouseTypes.h"
 #include "MPU6050Driver.h"
 #include "MotionProcessor.h"
+#include "FlexClickManager.h"
 
 // =============================================================================
 // ออบเจกต์ส่วนกลาง (Global Instances)
 // =============================================================================
-MPU6050Driver   mpu;
-MotionProcessor motion;
-BleMouse        bleMouse("Glove Air Mouse", "ESP32", 100);
+MPU6050Driver     mpu;
+MotionProcessor   motion;
+FlexClickManager  flexClick;
+BleMouse          bleMouse("Glove Air Mouse", "ESP32", 100);
 
 // FreeRTOS Handles
-QueueHandle_t mouseQueue = nullptr;
-TaskHandle_t  taskSensorHandle = nullptr;
-TaskHandle_t  taskBleHandle = nullptr;
-SemaphoreHandle_t MPUSemaphore;
+QueueHandle_t     mouseQueue      = nullptr;
+TaskHandle_t      taskSensorHandle = nullptr;
+TaskHandle_t      taskBleHandle    = nullptr;
+SemaphoreHandle_t mpuSemaphore    = nullptr;  // Binary Semaphore สำหรับสัญญาณ Interrupt จาก MPU6050
 
-void IRAM_ATTR NewDataFromMPU(){
+// =============================================================================
+// Interrupt Service Routine (ISR) - ต้องอยู่ใน IRAM เพื่อป้องกัน Crash
+// เรียกทุกครั้งที่ MPU6050 มีข้อมูลใหม่พร้อม (ขา INT ส่งสัญญาณ RISING)
+// =============================================================================
+void IRAM_ATTR onMPUDataReady() {
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  xSemaphoreGiveFromISR(MPUSemaphore, &xHigherPriorityTaskWoken);
+  xSemaphoreGiveFromISR(mpuSemaphore, &xHigherPriorityTaskWoken);
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 // =============================================================================
 // FreeRTOS Task 1: SENSOR & MOTION TASK (ทำงานบน Core 1)
-// มีหน้าที่อ่านค่า MPU6050 และประมวลผลการเคลื่อนไหวทุกๆ 10ms เป๊ะๆ
+// ทำงานแบบ Event-Driven: ตื่นขึ้นเมื่อ ISR ส่ง Semaphore (มีข้อมูลใหม่จาก MPU6050)
 // =============================================================================
 void TaskSensor(void *pvParameters) {
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xPeriod = pdMS_TO_TICKS(Config::SENSOR_SAMPLE_RATE_MS);
-
+  uint8_t lastButtons = 0;
   Serial.println("🟢 [TaskSensor] เริ่มทำงานบน Core " + String(xPortGetCoreID()));
 
   for (;;) {
-    // กำหนดรอบการทำงานอย่างแม่นยำ (Deterministic Periodic Execution: 100 Hz)
-    vTaskDelayUntil(&xLastWakeTime, xPeriod);
+    // หลับรอจนกว่า MPU6050 จะส่ง Interrupt แจ้งว่ามีข้อมูลใหม่
+    // (portMAX_DELAY = รอไม่มีกำหนด ไม่เปลือง CPU ระหว่างรอ)
+    if (xSemaphoreTake(mpuSemaphore, portMAX_DELAY) == pdTRUE) {
+      MousePacket packet = {0, 0, 0};
 
-    if (xSemaphoreTake(MPUSemaphore, portMAX_DELAY) == pdTRUE){
+      // อ่านค่า Gyroscope และแปลงเป็นระยะขยับเมาส์
       float gx, gy, gz;
       if (mpu.readGyro(gx, gy, gz)) {
-        MousePacket packet = motion.process(gx, gy, gz, mpu);
+        packet = motion.process(gx, gy, gz, mpu);
+      }
 
-        // ส่งข้อมูลเข้า Queue เมื่อมีการขยับหรือมีการกดปุ่ม
-        if (packet.dx != 0 || packet.dy != 0 || packet.buttons != 0) {
-          // ส่งเข้า Queue แบบ Non-blocking (ticksToWait = 0) หากคิวเต็มจะไม่ค้างรอ
-          xQueueSend(mouseQueue, &packet, 0);
-        }
+      // ตรวจสถานะ Flex Sensor (คลิกซ้าย/ขวา)
+      packet.buttons |= flexClick.update();
+
+      // ส่งข้อมูลเข้า Queue เมื่อมีการขยับ หรือสถานะปุ่มเปลี่ยน (รวมตอนปล่อยปุ่มด้วย)
+      if (packet.dx != 0 || packet.dy != 0 || packet.buttons != lastButtons) {
+        xQueueSend(mouseQueue, &packet, 0);  // Non-blocking: ถ้าคิวเต็มจะข้ามไป
+        lastButtons = packet.buttons;
       }
     }
-    // [จุดต่อยอดในอนาคต]: เรียกฟังก์ชันอ่าน Flex Sensor หรือ Clutch Button ใน Task นี้
   }
 }
 
@@ -67,9 +75,10 @@ void TaskBleMouse(void *pvParameters) {
   Serial.println("📡 [BLE] พร้อมเชื่อมต่อ! กรุณาเปิด Bluetooth เพื่อ Pair 'Glove Air Mouse'");
 
   MousePacket packet;
+  uint8_t lastButtons = 0;
 
   for (;;) {
-    // รอรับข้อมูลจาก Queue (จะ Block หลับไปจนกว่าจะมีข้อมูลใหม่เข้ามา จึงไม่เปลือง CPU)
+    // รอรับข้อมูลจาก Queue (จะ Block หลับไปจนกว่าจะมีข้อมูลใหม่เข้ามา)
     if (xQueueReceive(mouseQueue, &packet, portMAX_DELAY) == pdTRUE) {
       if (bleMouse.isConnected()) {
         // เลื่อนตำแหน่งเคอร์เซอร์
@@ -77,7 +86,14 @@ void TaskBleMouse(void *pvParameters) {
           bleMouse.move(packet.dx, packet.dy);
         }
 
-        // [จุดต่อยอดในอนาคต]: สั่งคลิกเมาส์ตามสถานะ packet.buttons
+        // สั่งคลิกเมาส์ตามสถานะ packet.buttons (Momentary: กด/ปล่อยตาม bit ที่เปลี่ยน)
+        if (packet.buttons != lastButtons) {
+          uint8_t pressedBits  = packet.buttons & ~lastButtons;
+          uint8_t releasedBits = lastButtons & ~packet.buttons;
+          if (pressedBits)  bleMouse.press(pressedBits);
+          if (releasedBits) bleMouse.release(releasedBits);
+          lastButtons = packet.buttons;
+        }
       }
     }
   }
@@ -98,28 +114,37 @@ void setup() {
   Wire.begin(Config::PIN_SDA, Config::PIN_SCL);
   Wire.setClock(Config::I2C_CLOCK_SPEED);
 
-  //ตั้งค่า interrupt จาก MPU
-  MPUSemaphore = xSemaphoreCreateBinary();
-  pinMode(Config::intterrupt_pin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(Config::intterrupt_pin), NewDataFromMPU , RISING); //รับ intterrupt จาก MPU6050 
-  enableInterrupt(4);
-
   // 2. เริ่มต้นและ Calibrate เซนเซอร์ MPU6050
   while (!mpu.begin(Config::MPU_DEFAULT_ADDR)) {
     delay(2000);
     Serial.println("กำลังลองเชื่อมต่อ MPU6050 ใหม่อีกครั้ง...");
   }
   mpu.calibrate();
+  // เปิดสัญญาณ Interrupt บนชิป MPU6050 (สั่งให้ขา INT ส่งสัญญาณเมื่อมีข้อมูลใหม่)
+  mpu.enableInterrupt();
 
-  // 3. สร้าง FreeRTOS Queue สำหรับสื่อสารระหว่าง Task
+  // 3. ตั้งค่า Interrupt Pin และสร้าง Semaphore
+  // (ต้องสร้าง Semaphore ก่อน attachInterrupt เสมอ เพื่อป้องกัน ISR เรียก NULL Handle)
+  mpuSemaphore = xSemaphoreCreateBinary();
+  if (mpuSemaphore == nullptr) {
+    Serial.println("❌ ไม่สามารถสร้าง mpuSemaphore ได้!");
+    while (1) { delay(1000); }
+  }
+  pinMode(Config::INTERRUPT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(Config::INTERRUPT_PIN), onMPUDataReady, RISING);
+
+  // 4. เริ่มต้นและ Calibrate Flex Sensor (วางมือแบนนิ่งไว้ขณะ boot)
+  flexClick.begin(Config::PIN_FLEX_INDEX, Config::PIN_FLEX_MIDDLE);
+  flexClick.calibrate();
+
+  // 5. สร้าง FreeRTOS Queue สำหรับสื่อสารระหว่าง Task
   mouseQueue = xQueueCreate(Config::QUEUE_LENGTH, sizeof(MousePacket));
   if (mouseQueue == nullptr) {
     Serial.println("❌ ไม่สามารถสร้าง FreeRTOS Queue ได้!");
     while (1) { delay(1000); }
   }
 
-  // 4. สร้าง FreeRTOS Tasks และแยกกระจายการทำงานลง Dual-Core
-  // Core 1: ทำงานอ่านเซนเซอร์และประมวลผลการเคลื่อนไหว
+  // 6. สร้าง FreeRTOS Tasks และแยกกระจายการทำงานลง Dual-Core
   xTaskCreatePinnedToCore(
     TaskSensor,
     "SensorTask",
@@ -127,10 +152,9 @@ void setup() {
     nullptr,
     Config::PRIORITY_SENSOR,
     &taskSensorHandle,
-    Config::CORE_SENSOR_TASK
+    Config::CORE_SENSOR_TASK   // Core 1: ทำงานอ่านเซนเซอร์และประมวลผลการเคลื่อนไหว
   );
 
-  // Core 0: ทำงานบลูทูธและส่งข้อมูล HID
   xTaskCreatePinnedToCore(
     TaskBleMouse,
     "BleMouseTask",
@@ -138,7 +162,7 @@ void setup() {
     nullptr,
     Config::PRIORITY_BLE,
     &taskBleHandle,
-    Config::CORE_BLE_TASK
+    Config::CORE_BLE_TASK      // Core 0: ทำงานบลูทูธและส่งข้อมูล HID
   );
 
   Serial.println("🚀 ระบบ FreeRTOS เริ่มต้นเสร็จสมบูรณ์!");
@@ -148,6 +172,5 @@ void setup() {
 // LOOP (ปล่อยว่าง เนื่องจากงานทั้งหมดถูกส่งมอบให้ FreeRTOS Tasks แล้ว)
 // =============================================================================
 void loop() {
-  // พัก loopTask หลัก เพื่อให้ทรัพยากรทั้งหมดไปอยู่ที่ RTOS Tasks
   vTaskDelay(pdMS_TO_TICKS(1000));
 }
