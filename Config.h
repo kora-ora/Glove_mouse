@@ -45,6 +45,18 @@ namespace Config {
   // Core ID (ESP32: Core 0 ดูแล WiFi/BT, Core 1 ดูแลงานทั่วไป)
   constexpr BaseType_t CORE_SENSOR_TASK    = 1;
   constexpr BaseType_t CORE_BLE_TASK       = 0;
+
+  // ==========================================
+  // 5. Flex Sensor (นิ้วชี้ = Left Click, นิ้วกลาง = Right Click)
+  // ==========================================
+  constexpr uint8_t  PIN_FLEX_INDEX        = 34;   // ADC1 เท่านั้น (ADC2 ชนกับ WiFi/BLE)
+  constexpr uint8_t  PIN_FLEX_MIDDLE       = 35;
+  constexpr uint16_t FLEX_CALIB_SAMPLES    = 200;  // baseline ครั้งเดียวตอน boot
+  constexpr uint16_t FLEX_CALIB_DELAY_MS   = 10;
+  constexpr int       FLEX_PRESS_MARGIN    = 300;  // ต้องปรับตามค่า ADC จริงจากเซนเซอร์
+  constexpr int       FLEX_RELEASE_MARGIN  = 150;  // < PRESS_MARGIN กันสัญญาณกระตุก
+  constexpr float      FLEX_FILTER_ALPHA   = 0.3f; // EMA กันสัญญาณแกว่ง
+  constexpr uint8_t   FLEX_DEBOUNCE_SAMPLES = 3;   // 3 samples * 10ms = 30ms
 }
 
 #endif // CONFIG_H

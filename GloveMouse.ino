@@ -5,13 +5,15 @@
 #include "MouseTypes.h"
 #include "MPU6050Driver.h"
 #include "MotionProcessor.h"
+#include "FlexClickManager.h"
 
 // =============================================================================
 // ออบเจกต์ส่วนกลาง (Global Instances)
 // =============================================================================
-MPU6050Driver   mpu;
-MotionProcessor motion;
-BleMouse        bleMouse("Glove Air Mouse", "ESP32", 100);
+MPU6050Driver     mpu;
+MotionProcessor   motion;
+FlexClickManager  flexClick;
+BleMouse          bleMouse("Glove Air Mouse", "ESP32", 100);
 
 // FreeRTOS Handles
 QueueHandle_t mouseQueue = nullptr;
@@ -25,6 +27,7 @@ TaskHandle_t  taskBleHandle = nullptr;
 void TaskSensor(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xPeriod = pdMS_TO_TICKS(Config::SENSOR_SAMPLE_RATE_MS);
+  uint8_t lastButtons = 0;
 
   Serial.println("🟢 [TaskSensor] เริ่มทำงานบน Core " + String(xPortGetCoreID()));
 
@@ -32,18 +35,19 @@ void TaskSensor(void *pvParameters) {
     // กำหนดรอบการทำงานอย่างแม่นยำ (Deterministic Periodic Execution: 100 Hz)
     vTaskDelayUntil(&xLastWakeTime, xPeriod);
 
+    MousePacket packet = {0, 0, 0};
     float gx, gy, gz;
     if (mpu.readGyro(gx, gy, gz)) {
-      MousePacket packet = motion.process(gx, gy, gz, mpu);
-
-      // ส่งข้อมูลเข้า Queue เมื่อมีการขยับหรือมีการกดปุ่ม
-      if (packet.dx != 0 || packet.dy != 0 || packet.buttons != 0) {
-        // ส่งเข้า Queue แบบ Non-blocking (ticksToWait = 0) หากคิวเต็มจะไม่ค้างรอ
-        xQueueSend(mouseQueue, &packet, 0);
-      }
+      packet = motion.process(gx, gy, gz, mpu);
     }
+    packet.buttons |= flexClick.update();
 
-    // [จุดต่อยอดในอนาคต]: เรียกฟังก์ชันอ่าน Flex Sensor หรือ Clutch Button ใน Task นี้
+    // ส่งข้อมูลเข้า Queue เมื่อมีการขยับ หรือสถานะปุ่มเปลี่ยน (รวมตอนปล่อยปุ่มด้วย)
+    if (packet.dx != 0 || packet.dy != 0 || packet.buttons != lastButtons) {
+      // ส่งเข้า Queue แบบ Non-blocking (ticksToWait = 0) หากคิวเต็มจะไม่ค้างรอ
+      xQueueSend(mouseQueue, &packet, 0);
+      lastButtons = packet.buttons;
+    }
   }
 }
 
@@ -59,6 +63,7 @@ void TaskBleMouse(void *pvParameters) {
   Serial.println("📡 [BLE] พร้อมเชื่อมต่อ! กรุณาเปิด Bluetooth เพื่อ Pair 'Glove Air Mouse'");
 
   MousePacket packet;
+  uint8_t lastButtons = 0;
 
   for (;;) {
     // รอรับข้อมูลจาก Queue (จะ Block หลับไปจนกว่าจะมีข้อมูลใหม่เข้ามา จึงไม่เปลือง CPU)
@@ -69,7 +74,14 @@ void TaskBleMouse(void *pvParameters) {
           bleMouse.move(packet.dx, packet.dy);
         }
 
-        // [จุดต่อยอดในอนาคต]: สั่งคลิกเมาส์ตามสถานะ packet.buttons
+        // สั่งคลิกเมาส์ตามสถานะ packet.buttons (momentary: กด/ปล่อยตาม bit ที่เปลี่ยน)
+        if (packet.buttons != lastButtons) {
+          uint8_t pressedBits = packet.buttons & ~lastButtons;
+          uint8_t releasedBits = lastButtons & ~packet.buttons;
+          if (pressedBits) bleMouse.press(pressedBits);
+          if (releasedBits) bleMouse.release(releasedBits);
+          lastButtons = packet.buttons;
+        }
       }
     }
   }
@@ -96,6 +108,10 @@ void setup() {
     Serial.println("กำลังลองเชื่อมต่อ MPU6050 ใหม่อีกครั้ง...");
   }
   mpu.calibrate();
+
+  // 2b. เริ่มต้นและ Calibrate Flex Sensor (นิ้วชี้/นิ้วกลาง วางมือแบนนิ่งไว้)
+  flexClick.begin(Config::PIN_FLEX_INDEX, Config::PIN_FLEX_MIDDLE);
+  flexClick.calibrate();
 
   // 3. สร้าง FreeRTOS Queue สำหรับสื่อสารระหว่าง Task
   mouseQueue = xQueueCreate(Config::QUEUE_LENGTH, sizeof(MousePacket));
