@@ -25,15 +25,11 @@ TaskHandle_t      taskSensorHandle = nullptr;
 TaskHandle_t      taskBleHandle    = nullptr;
 SemaphoreHandle_t mpuSemaphore    = nullptr;  // Binary Semaphore สำหรับสัญญาณ Interrupt จาก MPU6050
 
-// ตัวนับสำหรับ debug (พิมพ์ทุก 1 วินาทีใน TaskBleMouse)
-volatile uint32_t dbgIsr = 0, dbgQueued = 0, dbgSent = 0, dbgSendFail = 0;
-
 // =============================================================================
 // Interrupt Service Routine (ISR) - ต้องอยู่ใน IRAM เพื่อป้องกัน Crash
 // เรียกทุกครั้งที่ MPU6050 มีข้อมูลใหม่พร้อม (ขา INT ส่งสัญญาณ RISING)
 // =============================================================================
 void IRAM_ATTR onMPUDataReady() {
-  dbgIsr++;
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   xSemaphoreGiveFromISR(mpuSemaphore, &xHigherPriorityTaskWoken);
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
@@ -65,7 +61,6 @@ void TaskSensor(void *pvParameters) {
       // ส่งข้อมูลเข้า Queue เมื่อมีการขยับ หรือสถานะปุ่มเปลี่ยน (รวมตอนปล่อยปุ่มด้วย)
       if (packet.dx != 0 || packet.dy != 0 || packet.buttons != lastButtons) {
         xQueueSend(mouseQueue, &packet, 0);  // Non-blocking: ถ้าคิวเต็มจะข้ามไป
-        dbgQueued++;
         lastButtons = packet.buttons;
       }
     }
@@ -84,44 +79,12 @@ void TaskBleMouse(void *pvParameters) {
   Serial.println("📡 [BLE] พร้อมเชื่อมต่อ! กรุณาเปิด Bluetooth เพื่อ Pair 'Glove Air Mouse' (ต่อได้ 2 เครื่อง)");
 
   MousePacket packet;
-  uint32_t lastDbg = millis();
-
-  // สะสม dx/dy จากทุก sample แล้วส่งรวมทุก HID_SEND_INTERVAL_MS (BLE ส่งได้ไม่ถึง 500 report/วินาที)
-  // ถ้าส่งไม่ผ่านจะไม่ทิ้งระยะ เก็บไว้ส่งรอบหน้า
-  int accX = 0, accY = 0;
-  uint8_t buttons = 0, sentButtons = 0;
-  uint32_t lastSend = 0;
 
   for (;;) {
     // รอ Queue สั้นๆ เพื่อให้ได้ตรวจปุ่มสลับเครื่องเป็นระยะแม้ไม่มีการขยับเมาส์
-    if (xQueueReceive(mouseQueue, &packet, pdMS_TO_TICKS(2)) == pdTRUE) {
-      accX += packet.dx;
-      accY += packet.dy;
-      buttons = packet.buttons;  // สถานะปุ่มปัจจุบัน
-    }
-
-    uint32_t now = millis();
-    bool due = (now - lastSend) >= Config::HID_SEND_INTERVAL_MS;
-    if ((due && (accX != 0 || accY != 0)) || (due && buttons != sentButtons)) {
-      MousePacket out;
-      out.dx = constrain(accX, -127, 127);
-      out.dy = constrain(accY, -127, 127);
-      out.buttons = buttons;
-      lastSend = now;
-      if (hidMouse.send(out)) {
-        accX -= out.dx;
-        accY -= out.dy;
-        sentButtons = buttons;
-        dbgSent++;
-      } else {
-        dbgSendFail++;
-      }
-    }
-
-    if (millis() - lastDbg >= 1000) {
-      lastDbg = millis();
-      Serial.printf("[DBG] int=%lu queued=%lu sent=%lu fail=%lu active=%c\n",
-                    dbgIsr, dbgQueued, dbgSent, dbgSendFail, 'A' + hidMouse.activeSlot());
+    // (packet.buttons เป็นสถานะปุ่มปัจจุบัน ส่งเป็น HID report เต็มทุกครั้ง)
+    if (xQueueReceive(mouseQueue, &packet, pdMS_TO_TICKS(10)) == pdTRUE) {
+      hidMouse.send(packet);
     }
 
     // กดปุ่มสลับค้าง: HidMouseService ปล่อยปุ่มคลิกที่ค้างบนเครื่องเดิมให้ก่อนสลับ
@@ -131,10 +94,7 @@ void TaskBleMouse(void *pvParameters) {
       if (Serial.read() == 's') switchRequested = true;
     }
     if (switchRequested) {
-      if (hidMouse.switchHost()) {
-        accX = accY = 0;          // ไม่ส่งระยะที่สะสมไว้ไปให้เครื่องใหม่
-        buttons = sentButtons = 0;  // ปุ่มที่ค้างถูกปล่อยแล้ว ต้องกดใหม่
-      }
+      hidMouse.switchHost();
     }
 
     clipboard.service();

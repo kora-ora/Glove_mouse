@@ -52,26 +52,42 @@ void MPU6050Driver::calibrate(uint16_t samples) {
   Serial.println("\n[CALIBRATION] กรุณาวางถุงมือให้นิ่ง 2 วินาที...");
   delay(1000);
 
-  float sumX = 0, sumY = 0, sumZ = 0;
-  uint16_t count = 0;
+  // วัดซ้ำจนกว่าค่าจะนิ่งจริง (ช่วงกว้างของค่าต่อแกน < CALIB_MAX_RANGE)
+  // ถ้าขยับระหว่างวัด offset จะเพี้ยนแล้วเคอร์เซอร์ลอยเอง
+  for (uint8_t attempt = 1; attempt <= Config::CALIB_MAX_ATTEMPTS; attempt++) {
+    float sum[3] = {0, 0, 0};
+    float lo[3] = {1e9f, 1e9f, 1e9f};
+    float hi[3] = {-1e9f, -1e9f, -1e9f};
+    uint16_t count = 0;
 
-  for (uint16_t i = 0; i < samples; i++) {
-    float gx, gy, gz;
-    if (readGyro(gx, gy, gz)) {
-      sumX += gx;
-      sumY += gy;
-      sumZ += gz;
-      count++;
+    for (uint16_t i = 0; i < samples; i++) {
+      float g[3];
+      if (readGyro(g[0], g[1], g[2])) {
+        for (uint8_t a = 0; a < 3; a++) {
+          sum[a] += g[a];
+          lo[a] = min(lo[a], g[a]);
+          hi[a] = max(hi[a], g[a]);
+        }
+        count++;
+      }
+      delay(Config::CALIB_DELAY_MS);
     }
-    delay(Config::CALIB_DELAY_MS);
-  }
+    if (count == 0) continue;
 
-  if (count > 0) {
-    offsetX = sumX / count;
-    offsetY = sumY / count;
-    offsetZ = sumZ / count;
+    offsetX = sum[0] / count;
+    offsetY = sum[1] / count;
+    offsetZ = sum[2] / count;
+
+    float range = max(hi[0] - lo[0], max(hi[1] - lo[1], hi[2] - lo[2]));
+    if (range < Config::CALIB_MAX_RANGE) {
+      Serial.printf("[CALIBRATION] สำเร็จ! Offset: X=%.4f, Y=%.4f, Z=%.4f\n", offsetX, offsetY, offsetZ);
+      return;
+    }
+    Serial.printf("[CALIBRATION] ถุงมือขยับระหว่างวัด (range=%.3f) ลองใหม่ครั้งที่ %u/%u...\n",
+                  range, attempt, Config::CALIB_MAX_ATTEMPTS);
   }
-  Serial.printf("[CALIBRATION] สำเร็จ! Offset: X=%.4f, Y=%.4f, Z=%.4f\n", offsetX, offsetY, offsetZ);
+  Serial.printf("[CALIBRATION] ⚠️ วัดไม่นิ่ง ใช้ค่าล่าสุด: X=%.4f, Y=%.4f, Z=%.4f (เคอร์เซอร์อาจลอย ลองรีเซ็ตบอร์ดตอนวางนิ่ง)\n",
+                offsetX, offsetY, offsetZ);
 }
 
 bool MPU6050Driver::readGyro(float &gx, float &gy, float &gz) const {

@@ -17,9 +17,9 @@ namespace Config {
   // ==========================================
   // 2. การปรับแต่งความไวและการเคลื่อนที่ของเมาส์
   // ==========================================
-  constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 500;  // MPU6050 sample rate (เดิมเป็น 1 kHz เพราะไม่ได้ตั้ง SMPLRT_DIV)
-  constexpr float    SENSITIVITY_X      = 10.0f;  // ความไวแกน X (ซ้าย-ขวา) ตอน 500 Hz (rate x sensitivity = 5000 เท่ากับ 100 Hz x 50)
-  constexpr float    SENSITIVITY_Y      = 10.0f;  // ความไวแกน Y (ขึ้น-ลง)
+  constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 100;  // MPU6050 sample rate (เดิมเป็น 1 kHz เพราะไม่ได้ตั้ง SMPLRT_DIV)
+  constexpr float    SENSITIVITY_X      = 50.0f;  // ความไวแกน X (ซ้าย-ขวา) ตอน 100 Hz (rate x sensitivity = 5000)
+  constexpr float    SENSITIVITY_Y      = 50.0f;  // ความไวแกน Y (ขึ้น-ลง)
   constexpr float    DEADZONE           = 0.06f;   // ตัดสัญญาณมือสั่น (rad/s)
   constexpr bool     INVERT_X           = false;   // สลับทิศทางแนวนอน
   constexpr bool     INVERT_Y           = true;    // สลับทิศทางแนวตั้ง (Pitch)
@@ -29,6 +29,8 @@ namespace Config {
   // ==========================================
   constexpr uint16_t CALIB_SAMPLES       = 200;    // จำนวนรอบอ่านค่าเฉลี่ย
   constexpr uint16_t CALIB_DELAY_MS      = 5;      // หน่วงเวลาระหว่างรอบ
+  constexpr float    CALIB_MAX_RANGE     = 0.15f;  // ช่วงกว้างสูงสุดของ gyro ระหว่างวัด (rad/s) เกินนี้ถือว่าขยับ
+  constexpr uint8_t  CALIB_MAX_ATTEMPTS  = 5;      // จำนวนครั้งที่วัดซ้ำสูงสุด
 
   // ==========================================
   // 4. FreeRTOS Tasks และ คิวข้อมูล (Queue)
@@ -66,7 +68,6 @@ namespace Config {
   constexpr uint8_t  PIN_SWITCH            = 27;   // ปุ่มสลับเครื่อง ต่อลง GND (INPUT_PULLUP)
   constexpr uint32_t SWITCH_HOLD_MS        = 500;  // กดค้างนานเท่านี้ถึงสลับ
   constexpr uint8_t  MAX_HOSTS             = 2;
-  constexpr uint32_t HID_SEND_INTERVAL_MS  = 10;   // ส่ง HID report รวมทุก 10 ms (~100 Hz)
   // ขอ connection interval สั้น (หน่วย 1.25 ms): 6-12 = 7.5-15 ms, timeout หน่วย 10 ms
   constexpr uint16_t BLE_CONN_INTERVAL_MIN = 6;
   constexpr uint16_t BLE_CONN_INTERVAL_MAX = 12;
