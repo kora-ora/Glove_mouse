@@ -29,6 +29,7 @@ public:
   uint8_t chipId;
 
 private:
+  static constexpr uint8_t REG_SMPLRT_DIV  = 0x19;
   static constexpr uint8_t REG_CONFIG      = 0x1A;
   static constexpr uint8_t REG_GYRO_CONFIG = 0x1B;
   static constexpr uint8_t REG_GYRO_XOUT_H = 0x43;

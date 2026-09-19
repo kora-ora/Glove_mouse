@@ -31,6 +31,8 @@ bool MPU6050Driver::begin(uint8_t preferredAddress) {
   writeRegister(REG_GYRO_CONFIG, 0x08);
   // 3. เปิด Low Pass Filter (DLPF) ~42Hz เพื่อกรอง Noise ความถี่สูง
   writeRegister(REG_CONFIG, 0x03);
+  // 4. ตั้ง Sample Rate: เมื่อเปิด DLPF ฐานคือ 1 kHz -> Rate = 1000 / (1 + SMPLRT_DIV)
+  writeRegister(REG_SMPLRT_DIV, 1000 / Config::SENSOR_SAMPLE_RATE_HZ - 1);
 
   delay(50);
   return true;
