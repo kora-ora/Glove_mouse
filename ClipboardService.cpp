@@ -17,19 +17,19 @@ void ClipboardService::begin(NimBLEServer *server) {
 
   NimBLEService *svc = server->createService(Config::CLIP_SERVICE_UUID);
 
-  // เครื่อง -> ESP32: ต้อง bond/เข้ารหัสก่อนถึงจะเขียนได้
+  // เครื่อง -> ESP32
   NimBLECharacteristic *rx = svc->createCharacteristic(
-      Config::CLIP_RX_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC);
+      Config::CLIP_RX_UUID, NIMBLE_PROPERTY::WRITE);
   rx->setCallbacks(this);
 
   // ESP32 -> เครื่อง: ACK/NACK และข้อความขากลับ
   _tx = svc->createCharacteristic(
-      Config::CLIP_TX_UUID, NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::READ_ENC);
+      Config::CLIP_TX_UUID, NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::READ);
 
   // สถานะ: [state u8][len u16 LE]
   _status = svc->createCharacteristic(
       Config::CLIP_STATUS_UUID,
-      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::NOTIFY);
+      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
   updateStatus();
 
   Serial.println("📋 [Clipboard] service พร้อม");
