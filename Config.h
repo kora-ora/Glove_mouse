@@ -17,9 +17,9 @@ namespace Config {
   // ==========================================
   // 2. การปรับแต่งความไวและการเคลื่อนที่ของเมาส์
   // ==========================================
-  constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 100;  // MPU6050 sample rate (เดิมเป็น 1 kHz เพราะไม่ได้ตั้ง SMPLRT_DIV)
-  constexpr float    SENSITIVITY_X      = 250.0f;  // ความไวแกน X (ซ้าย-ขวา) ตอน 100 Hz (เดิม 25 ที่ 1 kHz)
-  constexpr float    SENSITIVITY_Y      = 250.0f;  // ความไวแกน Y (ขึ้น-ลง)
+  constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 500;  // MPU6050 sample rate (เดิมเป็น 1 kHz เพราะไม่ได้ตั้ง SMPLRT_DIV)
+  constexpr float    SENSITIVITY_X      = 10.0f;  // ความไวแกน X (ซ้าย-ขวา) ตอน 500 Hz (rate x sensitivity = 5000 เท่ากับ 100 Hz x 50)
+  constexpr float    SENSITIVITY_Y      = 10.0f;  // ความไวแกน Y (ขึ้น-ลง)
   constexpr float    DEADZONE           = 0.06f;   // ตัดสัญญาณมือสั่น (rad/s)
   constexpr bool     INVERT_X           = false;   // สลับทิศทางแนวนอน
   constexpr bool     INVERT_Y           = true;    // สลับทิศทางแนวตั้ง (Pitch)

@@ -25,11 +25,15 @@ TaskHandle_t      taskSensorHandle = nullptr;
 TaskHandle_t      taskBleHandle    = nullptr;
 SemaphoreHandle_t mpuSemaphore    = nullptr;  // Binary Semaphore สำหรับสัญญาณ Interrupt จาก MPU6050
 
+// ตัวนับสำหรับ debug (พิมพ์ทุก 1 วินาทีใน TaskBleMouse)
+volatile uint32_t dbgIsr = 0, dbgQueued = 0, dbgSent = 0, dbgSendFail = 0;
+
 // =============================================================================
 // Interrupt Service Routine (ISR) - ต้องอยู่ใน IRAM เพื่อป้องกัน Crash
 // เรียกทุกครั้งที่ MPU6050 มีข้อมูลใหม่พร้อม (ขา INT ส่งสัญญาณ RISING)
 // =============================================================================
 void IRAM_ATTR onMPUDataReady() {
+  dbgIsr++;
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   xSemaphoreGiveFromISR(mpuSemaphore, &xHigherPriorityTaskWoken);
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
@@ -61,6 +65,7 @@ void TaskSensor(void *pvParameters) {
       // ส่งข้อมูลเข้า Queue เมื่อมีการขยับ หรือสถานะปุ่มเปลี่ยน (รวมตอนปล่อยปุ่มด้วย)
       if (packet.dx != 0 || packet.dy != 0 || packet.buttons != lastButtons) {
         xQueueSend(mouseQueue, &packet, 0);  // Non-blocking: ถ้าคิวเต็มจะข้ามไป
+        dbgQueued++;
         lastButtons = packet.buttons;
       }
     }
@@ -79,12 +84,19 @@ void TaskBleMouse(void *pvParameters) {
   Serial.println("📡 [BLE] พร้อมเชื่อมต่อ! กรุณาเปิด Bluetooth เพื่อ Pair 'Glove Air Mouse' (ต่อได้ 2 เครื่อง)");
 
   MousePacket packet;
+  uint32_t lastDbg = millis();
 
   for (;;) {
     // รอ Queue สั้นๆ เพื่อให้ได้ตรวจปุ่มสลับเครื่องเป็นระยะแม้ไม่มีการขยับเมาส์
     // (packet.buttons เป็นสถานะปุ่มปัจจุบัน ส่งเป็น HID report เต็มทุกครั้ง)
     if (xQueueReceive(mouseQueue, &packet, pdMS_TO_TICKS(10)) == pdTRUE) {
-      hidMouse.send(packet);
+      if (hidMouse.send(packet)) dbgSent++; else dbgSendFail++;
+    }
+
+    if (millis() - lastDbg >= 1000) {
+      lastDbg = millis();
+      Serial.printf("[DBG] int=%lu queued=%lu sent=%lu fail=%lu active=%c\n",
+                    dbgIsr, dbgQueued, dbgSent, dbgSendFail, 'A' + hidMouse.activeSlot());
     }
 
     // กดปุ่มสลับค้าง: HidMouseService ปล่อยปุ่มคลิกที่ค้างบนเครื่องเดิมให้ก่อนสลับ

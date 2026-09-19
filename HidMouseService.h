@@ -2,7 +2,7 @@
 #define HID_MOUSE_SERVICE_H
 
 #include <Arduino.h>
-#include <NimBLEDevice.h>
+#include <NimBLEDevice.h> 
 #include "Config.h"
 #include "MouseTypes.h"
 

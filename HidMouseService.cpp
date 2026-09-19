@@ -1,4 +1,5 @@
 #include "HidMouseService.h"
+#include <NimBLEHIDDevice.h>
 
 // Report Map: เมาส์ 3 ปุ่ม + X/Y แบบ relative 8 บิต (Report ID 1)
 // payload 3 ไบต์: [buttons, dx, dy]
@@ -117,9 +118,10 @@ void HidMouseService::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) 
   if (slot >= 0) {
     _addr[slot] = addr;
     _hasAddr[slot] = true;
+    // เครื่องแรกที่ต่อเข้ามาเป็น active ทันที (ไม่พึ่ง getConnectedCount ที่อาจรวมหรือไม่รวมเครื่องนี้)
+    bool otherConnected = pickConnectedSlot(-1) >= 0;
     _handle[slot] = connInfo.getConnHandle();
-    // เครื่องแรกที่ต่อเข้ามาเป็น active
-    if (server->getConnectedCount() <= 1) _active = slot;
+    if (!otherConnected) _active = slot;
     Serial.printf("✅ [BLE] Host %c ต่อแล้ว (%s)\n", 'A' + slot, addr.toString().c_str());
   }
   restartAdvertising();
