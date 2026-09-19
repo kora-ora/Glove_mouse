@@ -3,6 +3,7 @@ import asyncio
 import logging
 
 from bleak import BleakClient, BleakScanner
+from bleak.backends.device import BLEDevice
 
 import protocol as p
 from discovery import find_paired_address
@@ -56,20 +57,25 @@ class GloveLink:
             await asyncio.sleep(delay)
             delay = min(delay * 2, RECONNECT_MAX_DELAY)
 
+    def _known_device(self, address):
+        # ส่ง BLEDevice แทนสตริง address: bleak จะข้ามการสแกนแล้วต่อตรงไปที่ address นั้น
+        # (ถุงมือที่ต่อ Windows อยู่แล้วไม่ advertise การสแกนจึงไม่เจอ แต่ต่อ GATT ตรงๆ ได้)
+        return BLEDevice(address, self.name, None)
+
     async def _resolve_target(self):
         """ลำดับการหาอุปกรณ์: --address → รายการที่ pair ใน Windows → สแกนหาชื่อ → address สำรอง"""
         if self.address:
-            return self.address
+            return self._known_device(self.address)
         paired = await asyncio.to_thread(find_paired_address, self.name)
         if paired:
             log.info("พบถุงมือที่ pair ไว้ใน Windows: %s", paired)
-            return paired
+            return self._known_device(paired)
         device = await BleakScanner.find_device_by_name(self.name, timeout=10)
         if device is not None:
             return device
         if self.fallback_address:
             log.info("หาถุงมือเองไม่เจอ ใช้ address สำรอง %s", self.fallback_address)
-            return self.fallback_address
+            return self._known_device(self.fallback_address)
         raise RuntimeError(f"ไม่พบอุปกรณ์ {self.name!r} (ลองระบุ --address)")
 
     async def _session(self):
