@@ -84,7 +84,7 @@ namespace Config {
   // ==========================================
   // 7. Clipboard Service (custom GATT: เครื่อง <-> ESP32)
   // ==========================================
-  constexpr size_t   CLIP_MAX_BYTES        = 4096;   // ข้อความใหญ่กว่านี้ถูกปฏิเสธ
+  constexpr size_t   CLIP_MAX_BYTES        = 16384;   // ข้อความใหญ่กว่านี้ถูกปฏิเสธ
   constexpr uint32_t CLIP_TTL_MS           = 60000;  // ล้างข้อความทิ้งเองหลังรับสำเร็จ
   constexpr uint32_t CLIP_RX_TIMEOUT_MS    = 5000;   // เงียบนานเท่านี้ระหว่างรับ = ทิ้งข้อความที่ค้าง
   constexpr uint16_t CLIP_MIN_CHUNK        = 16;     // ขนาด payload ต่อชิ้นขั้นต่ำ (MTU 23)

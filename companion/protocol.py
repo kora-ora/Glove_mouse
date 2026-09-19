@@ -17,7 +17,7 @@ GET, CLEAR = 0x20, 0x21
 
 STATE_EMPTY, STATE_HAS, STATE_RECEIVING = 0, 1, 2
 
-MAX_BYTES = 4096  # ต้องเท่ากับ Config::CLIP_MAX_BYTES ในเฟิร์มแวร์
+MAX_BYTES = 16384  # ต้องเท่ากับ Config::CLIP_MAX_BYTES ในเฟิร์มแวร์
 HEADER_LEN = 4
 MIN_CHUNK, MAX_CHUNK = 16, 240
 
