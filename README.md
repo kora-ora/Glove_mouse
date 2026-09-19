@@ -128,9 +128,7 @@ flowchart TD
 
 ### 1. ติดตั้งไลบรารีที่จำเป็นใน Arduino IDE
 เปิด Arduino IDE ไปที่ **Sketch** $\rightarrow$ **Include Library** $\rightarrow$ **Manage Libraries...**:
-1. ติดตั้ง **`NimBLE-Arduino`** (เวอร์ชัน `2.1.0` หรือใหม่กว่า โดย `h2zero`)
-2. ติดตั้ง **`ESP32-NimBLE-Mouse`** (โดย `wakwak-koba`)
-
+1. ติดตั้ง **`NimBLE-Arduino`** (เวอร์ชัน `2.x` โดย `h2zero`; เขียนและตรวจ API กับ `2.5.1`)
 ### 2. การตั้งค่าบอร์ด
 1. ไปที่เมนู **Tools** $\rightarrow$ **Board** $\rightarrow$ เลือก **ESP32 Dev Module**
 2. เลือกพอร์ต COM ที่เชื่อมต่อกับ ESP32
@@ -142,6 +140,13 @@ flowchart TD
 4. เปิด Bluetooth บนคอมพิวเตอร์ $\rightarrow$ เลือกค้นหาอุปกรณ์ใหม่ $\rightarrow$ เลือกเชื่อมต่อกับ **"Glove Air Mouse"**
 5. เมื่อเชื่อมต่อสำเร็จ สามารถเริ่มขยับมือเพื่อควบคุมเมาส์ได้ทันที
 
+### 4. ต่อ 2 เครื่องและสลับเครื่อง
+- ถุงมือต่อได้พร้อมกัน 2 เครื่อง: pair เครื่องที่สองด้วยวิธีเดียวกับข้อ 3 (ถุงมือยัง advertise ต่อเนื่อง)
+- เครื่องที่ต่อก่อนเป็น **A** เครื่องถัดไปเป็น **B** (ดู Serial Monitor `Active: A/B`)
+- ต่อปุ่มกดที่ **GPIO 27** ลง GND แล้ว **กดค้าง 0.5 วินาที** เพื่อสลับเครื่อง (ปุ่มคลิกที่ค้างจะถูกปล่อยก่อนสลับ)
+- ถ้าเครื่องที่ active หลุด จะย้ายไปอีกเครื่องเองอัตโนมัติ
+- ถ้าเคย pair ชื่อ "Glove Air Mouse" ไว้ด้วยไลบรารีเดิม ให้ลบอุปกรณ์ออกจาก Windows ก่อน pair ใหม่
+
 ---
 
 ## ⚙️ การปรับจูนพารามิเตอร์ (Tuning Parameters)
@@ -150,8 +155,8 @@ flowchart TD
 
 ```cpp
 // ปรับความเร็วของเคอร์เซอร์ (ยิ่งมากยิ่งเร็ว)
-constexpr float SENSITIVITY_X = 25.0f;
-constexpr float SENSITIVITY_Y = 25.0f;
+constexpr float SENSITIVITY_X = 250.0f;  // ที่ sample rate 100 Hz
+constexpr float SENSITIVITY_Y = 250.0f;
 
 // ปรับค่าตัดอาการมือสั่น (ถ้าเคอร์เซอร์ยังกระตุกตอนอยู่นิ่ง ให้เพิ่มค่านี้ เช่น 0.08 - 0.10)
 constexpr float DEADZONE = 0.06f;

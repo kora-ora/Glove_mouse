@@ -59,6 +59,14 @@ namespace Config {
   constexpr int      FLEX_RELEASE_MARGIN   = 150;  // < PRESS_MARGIN กันสัญญาณกระตุก
   constexpr float    FLEX_FILTER_ALPHA     = 0.3f; // EMA กันสัญญาณแกว่ง
   constexpr uint8_t  FLEX_DEBOUNCE_SAMPLES = 3;    // 3 samples * 10ms = 30ms
+
+  // ==========================================
+  // 6. BLE Multi-Host (ต่อได้ 2 เครื่อง สลับด้วยปุ่ม)
+  // ==========================================
+  constexpr uint8_t  PIN_SWITCH            = 27;   // ปุ่มสลับเครื่อง ต่อลง GND (INPUT_PULLUP)
+  constexpr uint32_t SWITCH_HOLD_MS        = 500;  // กดค้างนานเท่านี้ถึงสลับ
+  constexpr uint8_t  MAX_HOSTS             = 2;
+  constexpr uint16_t HID_APPEARANCE_MOUSE  = 0x03C2;
 }
 
 #endif // CONFIG_H

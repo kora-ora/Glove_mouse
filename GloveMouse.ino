@@ -1,11 +1,12 @@
 #include <Wire.h>
-#include <BleMouse.h>
 
 #include "Config.h"
 #include "MouseTypes.h"
 #include "MPU6050Driver.h"
 #include "MotionProcessor.h"
 #include "FlexClickManager.h"
+#include "HidMouseService.h"
+#include "HostSwitcher.h"
 
 // =============================================================================
 // ออบเจกต์ส่วนกลาง (Global Instances)
@@ -13,7 +14,8 @@
 MPU6050Driver     mpu;
 MotionProcessor   motion;
 FlexClickManager  flexClick;
-BleMouse          bleMouse("Glove Air Mouse", "ESP32", 100);
+HidMouseService   hidMouse;
+HostSwitcher      hostSwitcher;
 
 // FreeRTOS Handles
 QueueHandle_t     mouseQueue      = nullptr;
@@ -71,30 +73,21 @@ void TaskBleMouse(void *pvParameters) {
   Serial.println("🔵 [TaskBleMouse] เริ่มทำงานบน Core " + String(xPortGetCoreID()));
 
   // เริ่มต้นบลูทูธบน Core 0 (แกนเดียวกับ BLE Stack ของ ESP32)
-  bleMouse.begin();
-  Serial.println("📡 [BLE] พร้อมเชื่อมต่อ! กรุณาเปิด Bluetooth เพื่อ Pair 'Glove Air Mouse'");
+  hidMouse.begin("Glove Air Mouse");
+  Serial.println("📡 [BLE] พร้อมเชื่อมต่อ! กรุณาเปิด Bluetooth เพื่อ Pair 'Glove Air Mouse' (ต่อได้ 2 เครื่อง)");
 
   MousePacket packet;
-  uint8_t lastButtons = 0;
 
   for (;;) {
-    // รอรับข้อมูลจาก Queue (จะ Block หลับไปจนกว่าจะมีข้อมูลใหม่เข้ามา)
-    if (xQueueReceive(mouseQueue, &packet, portMAX_DELAY) == pdTRUE) {
-      if (bleMouse.isConnected()) {
-        // เลื่อนตำแหน่งเคอร์เซอร์
-        if (packet.dx != 0 || packet.dy != 0) {
-          bleMouse.move(packet.dx, packet.dy);
-        }
+    // รอ Queue สั้นๆ เพื่อให้ได้ตรวจปุ่มสลับเครื่องเป็นระยะแม้ไม่มีการขยับเมาส์
+    // (packet.buttons เป็นสถานะปุ่มปัจจุบัน ส่งเป็น HID report เต็มทุกครั้ง)
+    if (xQueueReceive(mouseQueue, &packet, pdMS_TO_TICKS(10)) == pdTRUE) {
+      hidMouse.send(packet);
+    }
 
-        // สั่งคลิกเมาส์ตามสถานะ packet.buttons (Momentary: กด/ปล่อยตาม bit ที่เปลี่ยน)
-        if (packet.buttons != lastButtons) {
-          uint8_t pressedBits  = packet.buttons & ~lastButtons;
-          uint8_t releasedBits = lastButtons & ~packet.buttons;
-          if (pressedBits)  bleMouse.press(pressedBits);
-          if (releasedBits) bleMouse.release(releasedBits);
-          lastButtons = packet.buttons;
-        }
-      }
+    // กดปุ่มสลับค้าง: HidMouseService ปล่อยปุ่มคลิกที่ค้างบนเครื่องเดิมให้ก่อนสลับ
+    if (hostSwitcher.update()) {
+      hidMouse.switchHost();
     }
   }
 }
@@ -137,7 +130,10 @@ void setup() {
   flexClick.begin(Config::PIN_FLEX_INDEX, Config::PIN_FLEX_MIDDLE);
   flexClick.calibrate();
 
-  // 5. สร้าง FreeRTOS Queue สำหรับสื่อสารระหว่าง Task
+  // 5. ปุ่มสลับเครื่อง (GPIO 27, INPUT_PULLUP)
+  hostSwitcher.begin(Config::PIN_SWITCH);
+
+  // 5.1 สร้าง FreeRTOS Queue สำหรับสื่อสารระหว่าง Task
   mouseQueue = xQueueCreate(Config::QUEUE_LENGTH, sizeof(MousePacket));
   if (mouseQueue == nullptr) {
     Serial.println("❌ ไม่สามารถสร้าง FreeRTOS Queue ได้!");
