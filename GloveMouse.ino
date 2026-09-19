@@ -86,11 +86,36 @@ void TaskBleMouse(void *pvParameters) {
   MousePacket packet;
   uint32_t lastDbg = millis();
 
+  // สะสม dx/dy จากทุก sample แล้วส่งรวมทุก HID_SEND_INTERVAL_MS (BLE ส่งได้ไม่ถึง 500 report/วินาที)
+  // ถ้าส่งไม่ผ่านจะไม่ทิ้งระยะ เก็บไว้ส่งรอบหน้า
+  int accX = 0, accY = 0;
+  uint8_t buttons = 0, sentButtons = 0;
+  uint32_t lastSend = 0;
+
   for (;;) {
     // รอ Queue สั้นๆ เพื่อให้ได้ตรวจปุ่มสลับเครื่องเป็นระยะแม้ไม่มีการขยับเมาส์
-    // (packet.buttons เป็นสถานะปุ่มปัจจุบัน ส่งเป็น HID report เต็มทุกครั้ง)
-    if (xQueueReceive(mouseQueue, &packet, pdMS_TO_TICKS(10)) == pdTRUE) {
-      if (hidMouse.send(packet)) dbgSent++; else dbgSendFail++;
+    if (xQueueReceive(mouseQueue, &packet, pdMS_TO_TICKS(2)) == pdTRUE) {
+      accX += packet.dx;
+      accY += packet.dy;
+      buttons = packet.buttons;  // สถานะปุ่มปัจจุบัน
+    }
+
+    uint32_t now = millis();
+    bool due = (now - lastSend) >= Config::HID_SEND_INTERVAL_MS;
+    if ((due && (accX != 0 || accY != 0)) || (due && buttons != sentButtons)) {
+      MousePacket out;
+      out.dx = constrain(accX, -127, 127);
+      out.dy = constrain(accY, -127, 127);
+      out.buttons = buttons;
+      lastSend = now;
+      if (hidMouse.send(out)) {
+        accX -= out.dx;
+        accY -= out.dy;
+        sentButtons = buttons;
+        dbgSent++;
+      } else {
+        dbgSendFail++;
+      }
     }
 
     if (millis() - lastDbg >= 1000) {
@@ -100,8 +125,16 @@ void TaskBleMouse(void *pvParameters) {
     }
 
     // กดปุ่มสลับค้าง: HidMouseService ปล่อยปุ่มคลิกที่ค้างบนเครื่องเดิมให้ก่อนสลับ
-    if (hostSwitcher.update()) {
-      hidMouse.switchHost();
+    // หรือพิมพ์ 's' ใน Serial Monitor (ใช้ทดสอบตอนยังไม่ได้ต่อปุ่ม)
+    bool switchRequested = hostSwitcher.update();
+    while (Serial.available()) {
+      if (Serial.read() == 's') switchRequested = true;
+    }
+    if (switchRequested) {
+      if (hidMouse.switchHost()) {
+        accX = accY = 0;          // ไม่ส่งระยะที่สะสมไว้ไปให้เครื่องใหม่
+        buttons = sentButtons = 0;  // ปุ่มที่ค้างถูกปล่อยแล้ว ต้องกดใหม่
+      }
     }
 
     clipboard.service();

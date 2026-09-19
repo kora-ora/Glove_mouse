@@ -66,6 +66,11 @@ namespace Config {
   constexpr uint8_t  PIN_SWITCH            = 27;   // ปุ่มสลับเครื่อง ต่อลง GND (INPUT_PULLUP)
   constexpr uint32_t SWITCH_HOLD_MS        = 500;  // กดค้างนานเท่านี้ถึงสลับ
   constexpr uint8_t  MAX_HOSTS             = 2;
+  constexpr uint32_t HID_SEND_INTERVAL_MS  = 10;   // ส่ง HID report รวมทุก 10 ms (~100 Hz)
+  // ขอ connection interval สั้น (หน่วย 1.25 ms): 6-12 = 7.5-15 ms, timeout หน่วย 10 ms
+  constexpr uint16_t BLE_CONN_INTERVAL_MIN = 6;
+  constexpr uint16_t BLE_CONN_INTERVAL_MAX = 12;
+  constexpr uint16_t BLE_CONN_TIMEOUT      = 200;
   constexpr uint16_t HID_APPEARANCE_MOUSE  = 0x03C2;
 
   // ==========================================

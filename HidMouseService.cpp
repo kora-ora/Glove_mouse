@@ -124,6 +124,8 @@ void HidMouseService::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) 
     if (!otherConnected) _active = slot;
     Serial.printf("✅ [BLE] Host %c ต่อแล้ว (%s)\n", 'A' + slot, addr.toString().c_str());
   }
+  server->updateConnParams(connInfo.getConnHandle(), Config::BLE_CONN_INTERVAL_MIN,
+                           Config::BLE_CONN_INTERVAL_MAX, 0, Config::BLE_CONN_TIMEOUT);
   restartAdvertising();
 }
 
