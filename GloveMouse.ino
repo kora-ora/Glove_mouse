@@ -7,6 +7,7 @@
 #include "FlexClickManager.h"
 #include "HidMouseService.h"
 #include "HostSwitcher.h"
+#include "ClipboardService.h"
 
 // =============================================================================
 // ออบเจกต์ส่วนกลาง (Global Instances)
@@ -16,6 +17,7 @@ MotionProcessor   motion;
 FlexClickManager  flexClick;
 HidMouseService   hidMouse;
 HostSwitcher      hostSwitcher;
+ClipboardService  clipboard;
 
 // FreeRTOS Handles
 QueueHandle_t     mouseQueue      = nullptr;
@@ -73,7 +75,7 @@ void TaskBleMouse(void *pvParameters) {
   Serial.println("🔵 [TaskBleMouse] เริ่มทำงานบน Core " + String(xPortGetCoreID()));
 
   // เริ่มต้นบลูทูธบน Core 0 (แกนเดียวกับ BLE Stack ของ ESP32)
-  hidMouse.begin("Glove Air Mouse");
+  hidMouse.begin("Glove Air Mouse", [](NimBLEServer *server) { clipboard.begin(server); });
   Serial.println("📡 [BLE] พร้อมเชื่อมต่อ! กรุณาเปิด Bluetooth เพื่อ Pair 'Glove Air Mouse' (ต่อได้ 2 เครื่อง)");
 
   MousePacket packet;
@@ -89,6 +91,8 @@ void TaskBleMouse(void *pvParameters) {
     if (hostSwitcher.update()) {
       hidMouse.switchHost();
     }
+
+    clipboard.service();
   }
 }
 

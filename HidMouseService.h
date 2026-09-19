@@ -10,7 +10,8 @@
 // ส่ง report ไปเฉพาะ host ที่ active (เรียก send()/switchHost() จาก Task เดียวเท่านั้น)
 class HidMouseService : public NimBLEServerCallbacks {
 public:
-  void begin(const char *deviceName);
+  // beforeStart: เรียกก่อน server->start() ให้ service อื่นๆ (เช่น Clipboard) ผูกเข้า server เดียวกัน
+  void begin(const char *deviceName, void (*beforeStart)(NimBLEServer *) = nullptr);
 
   bool isConnected() const;                 // มี host ต่ออยู่อย่างน้อย 1 เครื่อง
   bool send(const MousePacket &packet);     // ส่งไป host ที่ active (ถ้า active หลุดจะย้ายไปเครื่องอื่นเอง)

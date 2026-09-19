@@ -67,6 +67,19 @@ namespace Config {
   constexpr uint32_t SWITCH_HOLD_MS        = 500;  // กดค้างนานเท่านี้ถึงสลับ
   constexpr uint8_t  MAX_HOSTS             = 2;
   constexpr uint16_t HID_APPEARANCE_MOUSE  = 0x03C2;
+
+  // ==========================================
+  // 7. Clipboard Service (custom GATT: เครื่อง <-> ESP32)
+  // ==========================================
+  constexpr size_t   CLIP_MAX_BYTES        = 4096;   // ข้อความใหญ่กว่านี้ถูกปฏิเสธ
+  constexpr uint32_t CLIP_TTL_MS           = 60000;  // ล้างข้อความทิ้งเองหลังรับสำเร็จ
+  constexpr uint32_t CLIP_RX_TIMEOUT_MS    = 5000;   // เงียบนานเท่านี้ระหว่างรับ = ทิ้งข้อความที่ค้าง
+  constexpr uint16_t CLIP_MIN_CHUNK        = 16;     // ขนาด payload ต่อชิ้นขั้นต่ำ (MTU 23)
+  constexpr uint16_t CLIP_MAX_CHUNK        = 240;
+  constexpr const char *CLIP_SERVICE_UUID  = "7d3c0001-9a4e-4f6b-8c21-5b6e1f0a9d10";
+  constexpr const char *CLIP_RX_UUID       = "7d3c0002-9a4e-4f6b-8c21-5b6e1f0a9d10";  // เครื่อง -> ESP32 (write)
+  constexpr const char *CLIP_TX_UUID       = "7d3c0003-9a4e-4f6b-8c21-5b6e1f0a9d10";  // ESP32 -> เครื่อง (notify)
+  constexpr const char *CLIP_STATUS_UUID   = "7d3c0004-9a4e-4f6b-8c21-5b6e1f0a9d10";  // สถานะ (read/notify)
 }
 
 #endif // CONFIG_H

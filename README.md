@@ -147,6 +147,29 @@ flowchart TD
 - ถ้าเครื่องที่ active หลุด จะย้ายไปอีกเครื่องเองอัตโนมัติ
 - ถ้าเคย pair ชื่อ "Glove Air Mouse" ไว้ด้วยไลบรารีเดิม ให้ลบอุปกรณ์ออกจาก Windows ก่อน pair ใหม่
 
+### 5. Clipboard Service (ฝาก/ขอข้อความผ่าน ESP32)
+Custom GATT service แยกจาก HID (ต้อง pair/เข้ารหัสก่อนถึงใช้ได้). ข้อความเก็บในแรมได้ 1 ก้อน ≤ 4096 ไบต์ และถูกล้างเองหลัง 60 วินาที. ถ้า Windows ไม่เห็น service ใหม่ให้ลบอุปกรณ์แล้ว pair ใหม่ (Windows แคช GATT)
+
+| Characteristic | UUID | ทิศ |
+|---|---|---|
+| Service | `7d3c0001-9a4e-4f6b-8c21-5b6e1f0a9d10` | |
+| `CLIP_RX` | `7d3c0002-…` | เครื่อง → ESP32 (write) |
+| `CLIP_TX` | `7d3c0003-…` | ESP32 → เครื่อง (notify) |
+| `CLIP_STATUS` | `7d3c0004-…` | read/notify: `[state u8][len u16]` (0=ว่าง, 1=มีข้อความ, 2=กำลังรับ) |
+
+Packet: `[type u8][msgId u8][seq u16 LE][payload]`
+
+| type | ความหมาย | payload |
+|---|---|---|
+| `0x01` START | เริ่มข้อความ | `totalLen u16` + `crc32 u32` (CRC-32 ของ UTF-8 ทั้งก้อน เท่ากับ `zlib.crc32`) |
+| `0x02` DATA | ชิ้นข้อมูล (`seq` เริ่ม 0) | ไบต์ข้อความ |
+| `0x03` END | จบข้อความ → ESP32 ตรวจความยาว + CRC | - |
+| `0x10` ACK / `0x11` NACK | ตอบรับ (ส่งกลับทาง TX) | NACK: error `u8` (1=ใหญ่เกิน 2=ลำดับผิด/ชิ้นไม่ครบ 3=CRC ผิด 4=หมดเวลา 5=สถานะไม่ถูก 6=ว่าง) |
+| `0x20` GET | ขอข้อความที่เก็บอยู่ → ESP32 ส่ง START/DATA/END กลับทาง TX | - |
+| `0x21` CLEAR | ล้างข้อความ | - |
+
+ขนาดชิ้นต่อ MTU: `MTU − 3 − 4` (16-240 ไบต์). ทดสอบรอบเดียวด้วย `tools/clip_roundtrip.py`
+
 ---
 
 ## ⚙️ การปรับจูนพารามิเตอร์ (Tuning Parameters)

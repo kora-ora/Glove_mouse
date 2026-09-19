@@ -16,7 +16,7 @@ static const uint8_t kReportMap[] = {
   0xC0, 0xC0                           //   End Collection x2
 };
 
-void HidMouseService::begin(const char *deviceName) {
+void HidMouseService::begin(const char *deviceName, void (*beforeStart)(NimBLEServer *)) {
   for (uint8_t i = 0; i < Config::MAX_HOSTS; i++) _handle[i] = NO_CONN;
 
   NimBLEDevice::init(deviceName);
@@ -40,6 +40,8 @@ void HidMouseService::begin(const char *deviceName) {
   adv->setAppearance(Config::HID_APPEARANCE_MOUSE);
   adv->addServiceUUID(hid.getHidService()->getUUID());
   adv->setName(deviceName);
+
+  if (beforeStart) beforeStart(_server);
 
   _server->start();
   restartAdvertising();
