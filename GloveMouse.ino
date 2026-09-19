@@ -6,7 +6,7 @@
 #include "MotionProcessor.h"
 #include "FlexClickManager.h"
 #include "HidMouseService.h"
-#include "HostSwitcher.h"
+#include "TouchTapDetector.h"
 #include "ClipboardService.h"
 #include "OledStatusDisplay.h"
 
@@ -17,7 +17,7 @@ MPU6050Driver     mpu;
 MotionProcessor   motion;
 FlexClickManager  flexClick;
 HidMouseService   hidMouse;
-HostSwitcher      hostSwitcher;
+TouchTapDetector  touchTap;
 ClipboardService  clipboard;
 OledStatusDisplay oled;
 
@@ -86,22 +86,34 @@ void TaskBleMouse(void *pvParameters) {
   MousePacket packet;
 
   for (;;) {
-    // รอ Queue สั้นๆ เพื่อให้ได้ตรวจปุ่มสลับเครื่องเป็นระยะแม้ไม่มีการขยับเมาส์
+    // รอ Queue สั้นๆ เพื่อให้ได้ตรวจทัชเป็นระยะแม้ไม่มีการขยับเมาส์
     // (packet.buttons เป็นสถานะปุ่มปัจจุบัน ส่งเป็น HID report เต็มทุกครั้ง)
     if (xQueueReceive(mouseQueue, &packet, pdMS_TO_TICKS(10)) == pdTRUE) {
       hidMouse.send(packet);
     }
 
-    // กดปุ่มสลับค้าง: HidMouseService ปล่อยปุ่มคลิกที่ค้างบนเครื่องเดิมให้ก่อนสลับ
-    // หรือพิมพ์ 's' ใน Serial Monitor (ใช้ทดสอบตอนยังไม่ได้ต่อปุ่ม)
-    bool switchRequested = hostSwitcher.update();
+    // ทัช: แตะ 1 ครั้ง = สลับ ทำงาน/หยุด | แตะ 2 ครั้ง = สลับเครื่อง A<->B
+    // Serial Monitor: 's' = เหมือนแตะ 2 ครั้ง, 't' = พิมพ์ค่า touchRead (ไว้ปรับ TOUCH_THRESHOLD), 'b' = ล้าง bond ทั้งหมดในบอร์ด
+    uint8_t taps = touchTap.update();
     while (Serial.available()) {
-      if (Serial.read() == 's') switchRequested = true;
+      char cmd = Serial.read();
+      if (cmd == 's') {
+        taps = 2;
+      } else if (cmd == 'b') {
+        Serial.println(NimBLEDevice::deleteAllBonds() ? "🧹 [BLE] ล้าง bond ในบอร์ดแล้ว (ลบอุปกรณ์ใน Windows แล้ว pair ใหม่)"
+                                                      : "⚠️ [BLE] ล้าง bond ไม่สำเร็จ");
+      } else if (cmd == 't') {
+        Serial.printf("👆 [TOUCH] value=%lu (แตะ = ต่ำกว่า %lu)\n",
+                      (unsigned long)touchTap.rawValue(), (unsigned long)Config::TOUCH_THRESHOLD);
+      }
     }
-    if (switchRequested) {
+    if (taps == 1) {
+      if (hidMouse.isPaused()) hidMouse.resume(); else hidMouse.pause();
+    } else if (taps >= 2) {
       hidMouse.switchHost();
     }
 
+    hidMouse.service();
     clipboard.service();
   }
 }
@@ -148,8 +160,8 @@ void setup() {
   flexClick.begin(Config::PIN_FLEX_INDEX, Config::PIN_FLEX_MIDDLE);
   flexClick.calibrate();
 
-  // 5. ปุ่มสลับเครื่อง (GPIO 27, INPUT_PULLUP)
-  hostSwitcher.begin(Config::PIN_SWITCH);
+  // 5. Capacitive touch (GPIO 27 = T7)
+  touchTap.begin(Config::PIN_TOUCH);
 
   // 5.1 สร้าง FreeRTOS Queue สำหรับสื่อสารระหว่าง Task
   mouseQueue = xQueueCreate(Config::QUEUE_LENGTH, sizeof(MousePacket));

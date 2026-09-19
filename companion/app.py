@@ -20,9 +20,6 @@ log = logging.getLogger("glove")
 
 POLL_INTERVAL = 0.25  # วินาที
 
-# address สำรอง (Bluetooth MAC ของ ESP32 ตัวนี้ ไม่เปลี่ยน) ใช้เมื่อหาจากรายการ pair ของ Windows / สแกนชื่อไม่เจอ
-FALLBACK_ADDRESS = "20:9B:A9:67:CE:92"
-
 STATE_TEXT = {
     "connected": "เชื่อมต่อถุงมือแล้ว",
     "connecting": "กำลังเชื่อมต่อ...",
@@ -49,8 +46,7 @@ class App:
         self.stopping = False
         self._ignore_seq = None  # หมายเลข clipboard sequence ที่แอปเป็นคนเขียนเอง (ไม่ใช่การ copy ใหม่)
         self.loop = asyncio.new_event_loop()
-        self.link = GloveLink(self._on_remote_text, self._on_state, address=address, name=name,
-                             fallback_address=FALLBACK_ADDRESS)
+        self.link = GloveLink(self._on_remote_text, self._on_state, address=address, name=name)
         self.icon = pystray.Icon(
             "glove-clipboard",
             make_image(STATE_COLOR[self.state]),

@@ -72,14 +72,28 @@ namespace Config {
   // ==========================================
   // 6. BLE Multi-Host (ต่อได้ 2 เครื่อง สลับด้วยปุ่ม)
   // ==========================================
-  constexpr uint8_t  PIN_SWITCH            = 27;   // ปุ่มสลับเครื่อง ต่อลง GND (INPUT_PULLUP)
-  constexpr uint32_t SWITCH_HOLD_MS        = 500;  // กดค้างนานเท่านี้ถึงสลับ
   constexpr uint8_t  MAX_HOSTS             = 2;
-  // ขอ connection interval สั้น (หน่วย 1.25 ms): 6-12 = 7.5-15 ms, timeout หน่วย 10 ms
-  constexpr uint16_t BLE_CONN_INTERVAL_MIN = 6;
-  constexpr uint16_t BLE_CONN_INTERVAL_MAX = 12;
-  constexpr uint16_t BLE_CONN_TIMEOUT      = 200;
+  // ความเสถียรของ BLE
+  // Connection interval (หน่วย 1.25 ms): 12-24 = 15-30 ms เหมาะกับการต่อ 2 เครื่องพร้อมกัน (7.5 ms ทำให้ 2 ลิงก์แย่งเวลาวิทยุกัน)
+  // ขอปรับก็ต่อเมื่อเครื่องที่ต่อเลือก interval ช้ากว่า MAX เท่านั้น และขอหลังต่อเสร็จ BLE_PARAM_CHECK_DELAY_MS
+  constexpr uint16_t BLE_CONN_INTERVAL_MIN = 12;
+  constexpr uint16_t BLE_CONN_INTERVAL_MAX = 24;
+  constexpr uint16_t BLE_CONN_TIMEOUT      = 400;   // supervision timeout หน่วย 10 ms = 4 วินาที (ทนสัญญาณหายชั่วคราว)
+  constexpr uint32_t BLE_PARAM_CHECK_DELAY_MS = 2000;
+  constexpr uint32_t BLE_ADV_CHECK_MS      = 1000;  // ตรวจว่ายัง advertise อยู่ตราบใดที่มีช่องว่าง
+  constexpr uint16_t BLE_ADV_INTERVAL_MIN  = 80;    // หน่วย 0.625 ms = 50 ms
+  constexpr uint16_t BLE_ADV_INTERVAL_MAX  = 160;   // 100 ms
+  constexpr int8_t   BLE_TX_POWER_DBM      = 9;     // กำลังส่งสูงสุดของ ESP32 (+9 dBm)
   constexpr uint16_t HID_APPEARANCE_MOUSE  = 0x03C2;
+
+  // ==========================================
+  // 6.1 Capacitive Touch (แตะ 1 ครั้ง = สลับ ทำงาน/หยุด, แตะ 2 ครั้ง = สลับเครื่อง A<->B)
+  // ==========================================
+  constexpr uint8_t  PIN_TOUCH             = 27;   // GPIO 27 = T7 (ห้ามใช้ GPIO 4 เพราะเป็นขา INT ของ MPU6050)
+  constexpr uint32_t TOUCH_THRESHOLD       = 500;  // touchRead < ค่านี้ = แตะ (ค่าต่ำลงเมื่อแตะ)
+  constexpr uint8_t  TOUCH_DEBOUNCE_SAMPLES = 2;   // ต้องอ่านได้สถานะเดิมติดกันกี่ครั้งถึงเชื่อ
+  constexpr uint32_t TOUCH_SAMPLE_MS       = 10;   // ตรวจค่าทัชทุกกี่ ms
+  constexpr uint32_t TOUCH_TAP_WINDOW_MS   = 400;  // แตะซ้ำภายในเวลานี้นับเป็นชุดเดียว (แตะครั้งเดียวจึงตอบสนองหลังเวลานี้)
 
   // ==========================================
   // 7. Clipboard Service (custom GATT: เครื่อง <-> ESP32)

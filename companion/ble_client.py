@@ -11,7 +11,7 @@ from discovery import find_paired_address
 log = logging.getLogger("glove")
 
 ACK_TIMEOUT = 5.0
-RECONNECT_MAX_DELAY = 5.0
+RECONNECT_MAX_DELAY = 30.0  # ต่อไม่ได้ให้ถอยห่างขึ้นเรื่อยๆ การพยายามถี่ๆ จะรบกวนลิงก์ของเครื่องอื่นที่ต่ออยู่
 
 
 class GloveLink:
@@ -20,9 +20,8 @@ class GloveLink:
     on_state(state): "disconnected" | "connecting" | "connected"
     """
 
-    def __init__(self, on_text, on_state, address=None, name="Glove Air Mouse", fallback_address=None):
+    def __init__(self, on_text, on_state, address=None, name="Glove Air Mouse"):
         self.address = address                  # ระบุเอง (ชนะทุกอย่าง)
-        self.fallback_address = fallback_address  # ใช้เมื่อหาเองไม่เจอ
         self.name = name
         self._on_text = on_text
         self._on_state = on_state
@@ -63,7 +62,7 @@ class GloveLink:
         return BLEDevice(address, self.name, None)
 
     async def _resolve_target(self):
-        """ลำดับการหาอุปกรณ์: --address → รายการที่ pair ใน Windows → สแกนหาชื่อ → address สำรอง"""
+        """ลำดับการหาอุปกรณ์: --address → รายการที่ pair ใน Windows → สแกนหาชื่อ (ไม่เจอ = ยังไม่ต่อ ไม่เดา address)"""
         if self.address:
             return self._known_device(self.address)
         paired = await asyncio.to_thread(find_paired_address, self.name)
@@ -73,10 +72,7 @@ class GloveLink:
         device = await BleakScanner.find_device_by_name(self.name, timeout=10)
         if device is not None:
             return device
-        if self.fallback_address:
-            log.info("หาถุงมือเองไม่เจอ ใช้ address สำรอง %s", self.fallback_address)
-            return self._known_device(self.fallback_address)
-        raise RuntimeError(f"ไม่พบอุปกรณ์ {self.name!r} (ลองระบุ --address)")
+        raise RuntimeError(f"ไม่พบถุงมือ {self.name!r} ที่ pair ไว้ใน Windows (pair ก่อน หรือระบุ --address)")
 
     async def _session(self):
         target = await self._resolve_target()
