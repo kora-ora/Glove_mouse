@@ -22,6 +22,7 @@ void HidMouseService::begin(const char *deviceName, void (*beforeStart)(NimBLESe
   for (uint8_t i = 0; i < Config::MAX_HOSTS; i++) _handle[i] = NO_CONN;
 
   NimBLEDevice::init(deviceName);
+  Serial.printf("📡 [BLE] Address: %s\n", NimBLEDevice::getAddress().toString().c_str());
   // Bonding + Secure Connections แบบ Just Works (เก็บ bond ลง NVS อัตโนมัติ)
   NimBLEDevice::setSecurityAuth(true, false, true);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);

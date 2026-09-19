@@ -8,6 +8,12 @@ build/
 .vscode/
 .pio/
 
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
 # OS specific
 Thumbs.db
 .DS_Store

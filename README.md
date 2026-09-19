@@ -180,7 +180,7 @@ Packet: `[type u8][msgId u8][seq u16 LE][payload]`
 | `0x20` GET | ขอข้อความที่เก็บอยู่ → ESP32 ส่ง START/DATA/END กลับทาง TX | - |
 | `0x21` CLEAR | ล้างข้อความ | - |
 
-ขนาดชิ้นต่อ MTU: `MTU − 3 − 4` (16-240 ไบต์). ทดสอบรอบเดียวด้วย `tools/clip_roundtrip.py`
+ขนาดชิ้นต่อ MTU: `MTU − 3 − 4` (16-240 ไบต์). ฝั่งคอมใช้โปรแกรมใน [`companion/`](companion/README.md)
 
 ---
 

@@ -1,0 +1,4 @@
+bleak
+pystray
+pillow
+pywin32
