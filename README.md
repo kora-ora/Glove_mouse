@@ -71,7 +71,18 @@ flowchart TD
 | **SDA** | **GPIO 21** | I2C Data Line (มีระบบดึงสัญญาณที่ 400 kHz) |
 | **SCL** | **GPIO 22** | I2C Clock Line |
 | **AD0** | **GND** | กำหนดให้ Address หลักเป็น `0x68` (หากลอยไว้หรือต่อไฟจะเป็น `0x69`) |
-| **INT** | *ไม่ได้ต่อ* | ไม่จำเป็นต้องใช้ในโหมด Polling |
+| **INT** | **GPIO 4** | ส่งสัญญาณ Data Ready เพื่อปลุก TaskSensor ทุกครั้งที่ข้อมูลใหม่พร้อมอ่าน |
+
+การต่อจอ **OLED SH1106 แบบ I2C ขนาด 128x64** (ใช้บัสเดียวกับ MPU6050):
+
+| ขา OLED | ขา ESP32 | คำอธิบาย |
+|:---:|:---:|---|
+| **VCC** | **3.3V** | ใช้ 3.3V เพื่อให้ pull-up ของ I2C ไม่เกินระดับสัญญาณ ESP32 |
+| **GND** | **GND** | กราวด์ร่วม |
+| **SDA** | **GPIO 21** | แชร์กับ SDA ของ MPU6050 |
+| **SCL** | **GPIO 22** | แชร์กับ SCL ของ MPU6050 |
+
+OLED จะลอง I2C address `0x3C` ก่อน แล้วลอง `0x3D` อัตโนมัติ (datasheet บางรุ่นเขียนเป็น 8-bit write address `0x78` และ `0x7A` ตามลำดับ) และจะแสดง `Calibrating...` ระหว่างเริ่มต้น จากนั้นแสดงสถานะ BLE, host ที่ active, ค่า movement X/Y ล่าสุด และสถานะคลิกซ้าย/ขวา
 
 ---
 
@@ -129,6 +140,7 @@ flowchart TD
 ### 1. ติดตั้งไลบรารีที่จำเป็นใน Arduino IDE
 เปิด Arduino IDE ไปที่ **Sketch** $\rightarrow$ **Include Library** $\rightarrow$ **Manage Libraries...**:
 1. ติดตั้ง **`NimBLE-Arduino`** (เวอร์ชัน `2.x` โดย `h2zero`; เขียนและตรวจ API กับ `2.5.1`)
+2. ติดตั้ง **`Adafruit SH110X`** และ dependency **`Adafruit GFX Library`**
 ### 2. การตั้งค่าบอร์ด
 1. ไปที่เมนู **Tools** $\rightarrow$ **Board** $\rightarrow$ เลือก **ESP32 Dev Module**
 2. เลือกพอร์ต COM ที่เชื่อมต่อกับ ESP32

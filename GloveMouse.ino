@@ -8,6 +8,7 @@
 #include "HidMouseService.h"
 #include "HostSwitcher.h"
 #include "ClipboardService.h"
+#include "OledStatusDisplay.h"
 
 // =============================================================================
 // ออบเจกต์ส่วนกลาง (Global Instances)
@@ -18,6 +19,7 @@ FlexClickManager  flexClick;
 HidMouseService   hidMouse;
 HostSwitcher      hostSwitcher;
 ClipboardService  clipboard;
+OledStatusDisplay oled;
 
 // FreeRTOS Handles
 QueueHandle_t     mouseQueue      = nullptr;
@@ -57,6 +59,9 @@ void TaskSensor(void *pvParameters) {
 
       // ตรวจสถานะ Flex Sensor (คลิกซ้าย/ขวา)
       packet.buttons |= flexClick.update();
+
+      // I2C ถูกใช้งานจาก TaskSensor เพียง task เดียวหลัง setup จึงไม่ชนกับการอ่าน MPU6050
+      oled.update(hidMouse.isConnected(), hidMouse.activeSlot(), packet);
 
       // ส่งข้อมูลเข้า Queue เมื่อมีการขยับ หรือสถานะปุ่มเปลี่ยน (รวมตอนปล่อยปุ่มด้วย)
       if (packet.dx != 0 || packet.dy != 0 || packet.buttons != lastButtons) {
@@ -115,6 +120,10 @@ void setup() {
   // 1. เริ่มต้นระบบ I2C Bus
   Wire.begin(Config::PIN_SDA, Config::PIN_SCL);
   Wire.setClock(Config::I2C_CLOCK_SPEED);
+
+  // OLED ใช้ I2C bus เดียวกับ MPU6050: แสดงระหว่างการคาลิเบรต
+  oled.begin();
+  oled.showCalibrating();
 
   // 2. เริ่มต้นและ Calibrate เซนเซอร์ MPU6050
   while (!mpu.begin(Config::MPU_DEFAULT_ADDR)) {

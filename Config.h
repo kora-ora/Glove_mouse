@@ -13,6 +13,13 @@ namespace Config {
   constexpr uint8_t  MPU_DEFAULT_ADDR   = 0x68;
   constexpr uint8_t  MPU_BACKUP_ADDR    = 0x69;
   constexpr uint8_t  INTERRUPT_PIN      = 4;        // ขา INT ของ MPU6050 → GPIO 4
+  // ไลบรารี Arduino ใช้ I2C address แบบ 7-bit: 0x3C/0x3D
+  // บาง datasheet ระบุเป็น 8-bit write address: 0x78/0x7A ตามลำดับ
+  constexpr uint8_t  OLED_I2C_ADDR      = 0x3C;     // 0x78 แบบ 8-bit
+  constexpr uint8_t  OLED_BACKUP_ADDR   = 0x3D;     // 0x7A แบบ 8-bit
+  constexpr uint8_t  OLED_WIDTH         = 128;
+  constexpr uint8_t  OLED_HEIGHT        = 64;
+  constexpr uint32_t OLED_REFRESH_MS    = 200;      // ลดการเขียน I2C ซ้ำโดยไม่จำเป็น
 
   // ==========================================
   // 2. การปรับแต่งความไวและการเคลื่อนที่ของเมาส์
