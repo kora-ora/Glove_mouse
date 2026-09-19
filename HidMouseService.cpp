@@ -1,6 +1,7 @@
 #include "HidMouseService.h"
+#include "HidMouseService.h"
+#include <NimBLEDevice.h>
 #include <NimBLEHIDDevice.h>
-
 // Report Map: เมาส์ 3 ปุ่ม + X/Y แบบ relative 8 บิต (Report ID 1)
 // payload 3 ไบต์: [buttons, dx, dy]
 static const uint8_t kReportMap[] = {
