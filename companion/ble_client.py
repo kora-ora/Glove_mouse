@@ -1,6 +1,8 @@
 """ต่อ BLE เข้า clipboard service ของถุงมือ: ส่งข้อความเข้า ESP32 และรับข้อความที่เครื่องอื่นฝากไว้"""
 import asyncio
 import logging
+import random
+import time
 
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
@@ -11,7 +13,9 @@ from discovery import find_paired_address
 log = logging.getLogger("glove")
 
 ACK_TIMEOUT = 5.0
+RECONNECT_MIN_DELAY = 2.0
 RECONNECT_MAX_DELAY = 30.0  # ต่อไม่ได้ให้ถอยห่างขึ้นเรื่อยๆ การพยายามถี่ๆ จะรบกวนลิงก์ของเครื่องอื่นที่ต่ออยู่
+STABLE_SECONDS = 20.0       # ลิงก์อยู่ได้นานเท่านี้ถึงถือว่าเสถียร (รีเซ็ตเวลารอกลับเป็นค่าต่ำสุด)
 
 
 class GloveLink:
@@ -41,20 +45,25 @@ class GloveLink:
 
     # ---------- การเชื่อมต่อ ----------
     async def run(self):
-        delay = 1.0
+        delay = RECONNECT_MIN_DELAY
         while not self.stopping:
+            lived = 0.0
             try:
                 self._on_state("connecting")
-                await self._session()
-                delay = 1.0
+                lived = await self._session()
             except Exception as exc:
                 log.warning("เชื่อมต่อไม่สำเร็จ: %s", exc)
             self._connected.clear()
             self._on_state("disconnected")
             if self.stopping:
                 break
-            await asyncio.sleep(delay)
-            delay = min(delay * 2, RECONNECT_MAX_DELAY)
+
+            # ลิงก์อยู่ได้ไม่นานถือว่าไม่เสถียร: ต้องถอยห่างขึ้นเรื่อยๆ ไม่ใช่รีเซ็ตกลับไปรอสั้น (กันลูปต่อ-หลุดถี่ๆ)
+            # สุ่มเวลาเพิ่มเล็กน้อย กัน app ของสองเครื่องต่อพร้อมกันเป็นจังหวะเดียวกันจนแย่งกัน
+            wait = delay + random.uniform(0.0, 1.0)
+            log.info("ต่อได้นาน %.1f วินาที จะลองใหม่ใน %.1f วินาที", lived, wait)
+            await asyncio.sleep(wait)
+            delay = RECONNECT_MIN_DELAY if lived >= STABLE_SECONDS else min(delay * 2, RECONNECT_MAX_DELAY)
 
     def _known_device(self, address):
         # ส่ง BLEDevice แทนสตริง address: bleak จะข้ามการสแกนแล้วต่อตรงไปที่ address นั้น
@@ -84,9 +93,11 @@ class GloveLink:
             await client.start_notify(p.STATUS_UUID, self._on_status)
             self._connected.set()
             self._on_state("connected")
+            connected_at = time.monotonic()
             log.info("ต่อถุงมือแล้ว (MTU %s)", client.mtu_size)
             await self._lost.wait()
         self._client = None
+        return time.monotonic() - connected_at  # ใช้ตัดสินว่าลิงก์เสถียรพอจะรีเซ็ตเวลารอไหม
 
     def stop(self):
         self.stopping = True

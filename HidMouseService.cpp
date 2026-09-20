@@ -231,7 +231,8 @@ void HidMouseService::onDisconnect(NimBLEServer *server, NimBLEConnInfo &connInf
   for (int i = 0; i < Config::MAX_HOSTS; i++) {
     if (_handle[i] == connInfo.getConnHandle()) {
       _handle[i] = NO_CONN;
-      Serial.printf("❌ [BLE] Host %c หลุด (reason %d: %s)\n", 'A' + i, reason, describeReason(reason));
+      Serial.printf("❌ [BLE] Host %c หลุด หลังต่อ %lu ms (reason %d: %s)\n", 'A' + i,
+                    (unsigned long)(millis() - _connectedAtMs[i]), reason, describeReason(reason));
 
       // เครื่องนั้นตัดทันทีหลังต่อ (ไม่ทันเข้ารหัส/ตรวจ params) ซ้ำๆ = เกือบแน่ว่า key หรือแคช GATT ไม่ตรงกับบอร์ด
       static uint32_t lastHintMs = 0;
