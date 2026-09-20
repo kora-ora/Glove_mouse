@@ -9,15 +9,21 @@ bool MPU6050Driver::begin(uint8_t preferredAddress) {
   activeAddress = preferredAddress;
   Serial.printf("🔍 [MPU6050] กำลังตรวจสอบที่ Address 0x%02X...\n", activeAddress);
 
-  // DS3231 ใช้ 0x68 อยู่แล้ว จึงห้าม fallback ไป address นั้น:
-  // ถ้า AD0 ของ MPU6050 ยังต่อ GND การเขียน register จะไปแก้ RTC แทน
   if (!checkConnection(activeAddress)) {
-    Serial.println("❌ [MPU6050] ไม่พบที่ 0x69! ตรวจว่า AD0 ของ MPU6050 ต่อ 3.3V และตรวจสาย/ไฟเลี้ยง");
+    Serial.printf("❌ [MPU6050] ไม่พบที่ 0x%02X! ตรวจสาย SDA/SCL, ไฟเลี้ยง และ AD0 (ต่อ 3.3V = 0x69, ต่อ GND = 0x68)\n", activeAddress);
     return false;
   }
 
   // อ่านค่า Device ID (WHO_AM_I)
   chipId = readRegister(REG_WHO_AM_I);
+  // 0x00 / 0xFF ไม่ใช่รหัสของ MPU ตัวไหน = อ่านผิดปกติ (มักมีอุปกรณ์อื่นตอบ address เดียวกันจนสัญญาณชนกัน
+  // เช่น RTC DS3231 ที่ตายตัว 0x68) ห้ามตั้งค่าต่อ เพราะการเขียนรีจิสเตอร์จะไปโดนอุปกรณ์อื่นด้วย
+  if (chipId == 0x00 || chipId == 0xFF) {
+    Serial.printf("❌ [MPU6050] WHO_AM_I=0x%02X ผิดปกติ: น่าจะมีอุปกรณ์อื่นใช้ address 0x%02X ร่วมกัน (เช่น RTC DS3231) หรือสายหลวม\n",
+                  chipId, activeAddress);
+    Serial.println("   แก้: ตรวจว่า AD0 ของ MPU6050 ต่อ 3.3V จริง (ให้เป็น 0x69 แยกจาก RTC DS3231 ที่ 0x68) และสายไม่หลุด");
+    return false;
+  }
   Serial.printf("✅ [MPU6050] เชื่อมต่อสำเร็จ! Address: 0x%02X | Chip ID: 0x%02X\n", activeAddress, chipId);
 
   // รีเซ็ตชิปก่อนตั้งค่าเสมอ: รีจิสเตอร์ของ MPU6050 ไม่หายเมื่อ ESP32 รีเซ็ต (ชิปยังมีไฟเลี้ยง)

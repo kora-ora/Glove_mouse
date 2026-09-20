@@ -56,10 +56,9 @@ void OledStatusDisplay::update(bool connected, int activeSlot, const MousePacket
   _display.setCursor(0, 16);
   if (_rtc != nullptr) {
     char time[9];
-    if (_rtc->readTime(time, sizeof(time))) {
-      _display.print("Time: ");
-      _display.println(time);
-    }
+    _display.print("Time: ");
+    // อ่านเวลาไม่ได้ (ไม่พบ RTC / address ผิด / ค่าไม่ถูกต้อง) ให้แสดงขีดแทน จะได้รู้ว่าอ่านไม่ได้ ไม่ใช่ไม่วาด
+    _display.println(_rtc->readTime(time, sizeof(time)) ? time : "--:--:--");
   }
   _display.setCursor(0, 30);
   if (connected && activeSlot >= 0) {

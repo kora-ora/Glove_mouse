@@ -10,10 +10,10 @@ namespace Config {
   constexpr uint8_t  PIN_SDA            = 21;
   constexpr uint8_t  PIN_SCL            = 22;
   constexpr uint32_t I2C_CLOCK_SPEED    = 400000;  // 400kHz Fast Mode
-  // DS3231 และ MPU6050 มี address มาตรฐาน 0x68 เหมือนกัน จึงต้องต่อ AD0 ของ MPU6050 กับ VCC
-  // เพื่อย้าย MPU6050 ไป 0x69 แล้วให้ DS3231 ใช้ 0x68 ตามปกติ
+  // ที่อยู่ I2C ของอุปกรณ์ที่ใช้จริง (7-bit): MPU6050 = 0x69 (AD0 ต่อ 3.3V), OLED = 0x3C
+  // RTC DS3231 = 0x68 ตายตัว (0x57 คือ EEPROM บนโมดูล RTC ซึ่งอ่านเวลาไม่ได้)
   constexpr uint8_t  MPU_DEFAULT_ADDR   = 0x69;
-  constexpr uint8_t  RTC_DS3231_ADDR    = 0x68;
+  constexpr uint8_t  RTC_I2C_ADDR       = 0x68;
   constexpr uint8_t  INTERRUPT_PIN      = 4;        // ขา INT ของ MPU6050 → GPIO 4
   // ไลบรารี Arduino ใช้ I2C address แบบ 7-bit: 0x3C/0x3D
   // บาง datasheet ระบุเป็น 8-bit write address: 0x78/0x7A ตามลำดับ

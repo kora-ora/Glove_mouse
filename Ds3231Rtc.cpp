@@ -3,10 +3,10 @@
 #include "Config.h"
 
 bool Ds3231Rtc::begin() {
-  Wire.beginTransmission(Config::RTC_DS3231_ADDR);
+  Wire.beginTransmission(Config::RTC_I2C_ADDR);
   _available = Wire.endTransmission() == 0;
-  Serial.println(_available ? "✅ [RTC] DS3231 พร้อมใช้งานที่ I2C address 0x68"
-                            : "⚠️ [RTC] ไม่พบ DS3231 ที่ I2C address 0x68");
+  Serial.printf(_available ? "✅ [RTC] พร้อมใช้งานที่ I2C address 0x%02X\n"
+                           : "⚠️ [RTC] ไม่พบที่ I2C address 0x%02X\n", Config::RTC_I2C_ADDR);
   return _available;
 }
 
@@ -17,9 +17,9 @@ uint8_t Ds3231Rtc::bcdToDecimal(uint8_t value) {
 bool Ds3231Rtc::readTime(char *buffer, size_t bufferSize) const {
   if (!_available || buffer == nullptr || bufferSize < 9) return false;
 
-  Wire.beginTransmission(Config::RTC_DS3231_ADDR);
+  Wire.beginTransmission(Config::RTC_I2C_ADDR);
   Wire.write(static_cast<uint8_t>(0x00));
-  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(Config::RTC_DS3231_ADDR, static_cast<uint8_t>(3)) != 3) {
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(Config::RTC_I2C_ADDR, static_cast<uint8_t>(3)) != 3) {
     return false;
   }
 
