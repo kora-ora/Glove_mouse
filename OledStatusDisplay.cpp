@@ -40,6 +40,12 @@ void OledStatusDisplay::drawButtons(uint8_t buttons) {
   _display.println((buttons & FLEX_BUTTON_RIGHT) != 0 ? "R" : "-");
 }
 
+void OledStatusDisplay::clear() {
+  if (!_available) return;
+  _display.clearDisplay();
+  _display.display();
+}
+
 void OledStatusDisplay::update(bool connected, int activeSlot, const MousePacket &packet) {
   if (!_available || millis() - _lastRefreshAt < Config::OLED_REFRESH_MS) return;
   _lastRefreshAt = millis();

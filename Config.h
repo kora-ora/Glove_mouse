@@ -93,6 +93,18 @@ namespace Config {
   constexpr uint8_t  TOUCH_DEBOUNCE_SAMPLES = 2;   // ต้องอ่านได้สถานะเดิมติดกันกี่ครั้งถึงเชื่อ
   constexpr uint32_t TOUCH_SAMPLE_MS       = 10;   // ตรวจค่าทัชทุกกี่ ms
   constexpr uint32_t TOUCH_TAP_WINDOW_MS   = 400;  // แตะซ้ำภายในเวลานี้นับเป็นชุดเดียว (แตะครั้งเดียวจึงตอบสนองหลังเวลานี้)
+  constexpr uint32_t TOUCH_ISR_WAKE_HINT_MS = 50;  // touchAttachInterrupt ยิง 1 ครั้งตอนเริ่มแตะ (บาง core ไม่ยิงซ้ำตลอด) ใช้เป็น hint เสริมให้ปลุกจาก Idle ไว
+
+  // ==========================================
+  // 6.2 Idle Mode (ซอฟต์: OLED ดับ + งด I2C/BLE queue แต่ BLE ยังต่ออยู่)
+  // ==========================================
+  constexpr uint32_t IDLE_TIMEOUT_MS       = 30000;  // ไม่มีการขยับ/ปุ่ม/แตะต่อเนื่องเท่านี้ ms ถึงเข้า Idle
+
+  // ==========================================
+  // 6.3 I2C Reliability
+  // ==========================================
+  constexpr uint8_t  I2C_FAIL_THRESHOLD     = 10;  // อ่าน/เขียน I2C พลาดติดกันเท่านี้ครั้ง -> ลอง reset bus
+  constexpr uint8_t  I2C_RESTART_THRESHOLD  = 10;  // reset bus แล้วยังพลาดติดกันอีกเท่านี้ครั้ง -> ESP.restart()
 
   // ==========================================
   // 7. Clipboard Service (custom GATT: เครื่อง <-> ESP32)

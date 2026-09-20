@@ -13,6 +13,7 @@ public:
   bool begin();
   void showCalibrating();
   void update(bool connected, int activeSlot, const MousePacket &packet);
+  void clear();  // ดับจอ (blank) ตอนเข้า Idle mode
 
 private:
   void drawButtons(uint8_t buttons);

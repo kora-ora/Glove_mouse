@@ -9,23 +9,29 @@
 #include "TouchTapDetector.h"
 #include "ClipboardService.h"
 #include "OledStatusDisplay.h"
+#include "SleepController.h"
 
 // =============================================================================
 // ออบเจกต์ส่วนกลาง (Global Instances)
 // =============================================================================
-MPU6050Driver     mpu;
-MotionProcessor   motion;
-FlexClickManager  flexClick;
-HidMouseService   hidMouse;
-TouchTapDetector  touchTap;
-ClipboardService  clipboard;
-OledStatusDisplay oled;
+MPU6050Driver          mpu;
+MotionProcessor        motion;
+FlexClickManager       flexClick;
+HidMouseService        hidMouse;
+TouchTapDetector       touchTap;
+ClipboardService       clipboard;
+OledStatusDisplay      oled;
+SleepController        sleepCtl;
 
 // FreeRTOS Handles
 QueueHandle_t     mouseQueue      = nullptr;
 TaskHandle_t      taskSensorHandle = nullptr;
 TaskHandle_t      taskBleHandle    = nullptr;
 SemaphoreHandle_t mpuSemaphore    = nullptr;  // Binary Semaphore สำหรับสัญญาณ Interrupt จาก MPU6050
+
+// ค่า debug ล่าสุดไว้ดูผ่านคำสั่ง 'g' ใน Serial Monitor (เขียนจาก TaskSensor, อ่านจาก TaskBleMouse)
+volatile float gDebugGx = 0, gDebugGy = 0, gDebugGz = 0;
+volatile int8_t gDebugDx = 0, gDebugDy = 0;
 
 // =============================================================================
 // Interrupt Service Routine (ISR) - ต้องอยู่ใน IRAM เพื่อป้องกัน Crash
@@ -38,35 +44,79 @@ void IRAM_ATTR onMPUDataReady() {
 }
 
 // =============================================================================
+// I2C Recovery: reset บัส I2C เมื่ออ่าน/เขียนพลาดติดกันหลายครั้ง
+// =============================================================================
+void recoverI2CBus() {
+  Wire.end();
+  delay(10);
+  Wire.begin(Config::PIN_SDA, Config::PIN_SCL);
+  Wire.setClock(Config::I2C_CLOCK_SPEED);
+}
+
+// =============================================================================
 // FreeRTOS Task 1: SENSOR & MOTION TASK (ทำงานบน Core 1)
 // ทำงานแบบ Event-Driven: ตื่นขึ้นเมื่อ ISR ส่ง Semaphore (มีข้อมูลใหม่จาก MPU6050)
 // =============================================================================
 void TaskSensor(void *pvParameters) {
   uint8_t lastButtons = 0;
+  uint8_t i2cFailStreak = 0;
+  bool recoveryAttempted = false;
   Serial.println("🟢 [TaskSensor] เริ่มทำงานบน Core " + String(xPortGetCoreID()));
 
   for (;;) {
     // หลับรอจนกว่า MPU6050 จะส่ง Interrupt แจ้งว่ามีข้อมูลใหม่
     // (portMAX_DELAY = รอไม่มีกำหนด ไม่เปลือง CPU ระหว่างรอ)
     if (xSemaphoreTake(mpuSemaphore, portMAX_DELAY) == pdTRUE) {
-      MousePacket packet = {0, 0, 0};
+      bool touchedNow = touchTap.isTouchedNow();
+      bool cycleOk = true;
 
-      // อ่านค่า Gyroscope และแปลงเป็นระยะขยับเมาส์
-      float gx, gy, gz;
-      if (mpu.readGyro(gx, gy, gz)) {
-        packet = motion.process(gx, gy, gz, mpu);
+      if (sleepCtl.isIdle() && !touchedNow) {
+        // Idle: งดอ่าน gyro/flex, งดวาด OLED, งดส่ง BLE queue ประหยัด I2C/CPU/BLE traffic
+        sleepCtl.tick(false, false);
+      } else {
+        MousePacket packet = {0, 0, 0};
+
+        // อ่านค่า Gyroscope และแปลงเป็นระยะขยับเมาส์
+        float gx, gy, gz;
+        if (mpu.readGyro(gx, gy, gz)) {
+          packet = motion.process(gx, gy, gz, mpu);
+          gDebugGx = gx; gDebugGy = gy; gDebugGz = gz;
+          gDebugDx = packet.dx; gDebugDy = packet.dy;
+        } else {
+          cycleOk = false;
+        }
+
+        // ตรวจสถานะ Flex Sensor (คลิกซ้าย/ขวา)
+        packet.buttons |= flexClick.update();
+
+        // I2C ถูกใช้งานจาก TaskSensor เพียง task เดียวหลัง setup จึงไม่ชนกับการอ่าน MPU6050
+        oled.update(hidMouse.isConnected(), hidMouse.activeSlot(), packet);
+
+        bool buttonsChanged = packet.buttons != lastButtons;
+        // ส่งข้อมูลเข้า Queue เมื่อมีการขยับ หรือสถานะปุ่มเปลี่ยน (รวมตอนปล่อยปุ่มด้วย)
+        if (packet.dx != 0 || packet.dy != 0 || buttonsChanged) {
+          xQueueSend(mouseQueue, &packet, 0);  // Non-blocking: ถ้าคิวเต็มจะข้ามไป
+          lastButtons = packet.buttons;
+        }
+
+        sleepCtl.tick(packet.dx != 0 || packet.dy != 0 || buttonsChanged, touchedNow);
       }
 
-      // ตรวจสถานะ Flex Sensor (คลิกซ้าย/ขวา)
-      packet.buttons |= flexClick.update();
-
-      // I2C ถูกใช้งานจาก TaskSensor เพียง task เดียวหลัง setup จึงไม่ชนกับการอ่าน MPU6050
-      oled.update(hidMouse.isConnected(), hidMouse.activeSlot(), packet);
-
-      // ส่งข้อมูลเข้า Queue เมื่อมีการขยับ หรือสถานะปุ่มเปลี่ยน (รวมตอนปล่อยปุ่มด้วย)
-      if (packet.dx != 0 || packet.dy != 0 || packet.buttons != lastButtons) {
-        xQueueSend(mouseQueue, &packet, 0);  // Non-blocking: ถ้าคิวเต็มจะข้ามไป
-        lastButtons = packet.buttons;
+      // นับความล้มเหลวของ I2C ต่อเนื่อง -> reset bus -> ถ้ายังพลาดต่อ -> restart บอร์ด
+      if (cycleOk) {
+        i2cFailStreak = 0;
+        recoveryAttempted = false;
+      } else if (++i2cFailStreak >= Config::I2C_FAIL_THRESHOLD) {
+        if (!recoveryAttempted) {
+          Serial.println("⚠️ [I2C] อ่านพลาดติดกันหลายครั้ง กำลัง reset bus...");
+          recoverI2CBus();
+          recoveryAttempted = true;
+          i2cFailStreak = 0;
+        } else if (i2cFailStreak >= Config::I2C_RESTART_THRESHOLD) {
+          Serial.println("❌ [I2C] ยังพลาดต่อเนื่องหลัง reset bus แล้ว กำลัง restart บอร์ด...");
+          Serial.flush();
+          ESP.restart();
+        }
       }
     }
   }
@@ -93,7 +143,9 @@ void TaskBleMouse(void *pvParameters) {
     }
 
     // ทัช: แตะ 1 ครั้ง = สลับ ทำงาน/หยุด | แตะ 2 ครั้ง = สลับเครื่อง A<->B
-    // Serial Monitor: 's' = เหมือนแตะ 2 ครั้ง, 't' = พิมพ์ค่า touchRead (ไว้ปรับ TOUCH_THRESHOLD), 'b' = ล้าง bond ทั้งหมดในบอร์ด
+    // Serial Monitor: 's' = เหมือนแตะ 2 ครั้ง, 't' = พิมพ์ค่า touchRead (ไว้ปรับ TOUCH_THRESHOLD),
+    // 'b' = ล้าง bond ทั้งหมดในบอร์ด,
+    // 'g' = พิมพ์ค่า gyro ดิบ/dx,dy ล่าสุด + สถานะ paused (debug ตอนเมาส์ไม่ขยับ)
     uint8_t taps = touchTap.update();
     while (Serial.available()) {
       char cmd = Serial.read();
@@ -105,6 +157,9 @@ void TaskBleMouse(void *pvParameters) {
       } else if (cmd == 't') {
         Serial.printf("👆 [TOUCH] value=%lu (แตะ = ต่ำกว่า %lu)\n",
                       (unsigned long)touchTap.rawValue(), (unsigned long)Config::TOUCH_THRESHOLD);
+      } else if (cmd == 'g') {
+        Serial.printf("🕹️ [GYRO] gx=%.4f gy=%.4f gz=%.4f rad/s -> dx=%d dy=%d paused=%s\n",
+                      gDebugGx, gDebugGy, gDebugGz, gDebugDx, gDebugDy, hidMouse.isPaused() ? "ใช่" : "ไม่");
       }
     }
     if (taps == 1) {
@@ -163,7 +218,10 @@ void setup() {
   // 5. Capacitive touch (GPIO 27 = T7)
   touchTap.begin(Config::PIN_TOUCH);
 
-  // 5.1 สร้าง FreeRTOS Queue สำหรับสื่อสารระหว่าง Task
+  // 5.1 Idle mode
+  sleepCtl.begin(&oled);
+
+  // 5.2 สร้าง FreeRTOS Queue สำหรับสื่อสารระหว่าง Task
   mouseQueue = xQueueCreate(Config::QUEUE_LENGTH, sizeof(MousePacket));
   if (mouseQueue == nullptr) {
     Serial.println("❌ ไม่สามารถสร้าง FreeRTOS Queue ได้!");

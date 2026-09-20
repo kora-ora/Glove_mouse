@@ -24,9 +24,16 @@ bool MPU6050Driver::begin(uint8_t preferredAddress) {
   chipId = readRegister(REG_WHO_AM_I);
   Serial.printf("✅ [MPU6050] เชื่อมต่อสำเร็จ! Address: 0x%02X | Chip ID: 0x%02X\n", activeAddress, chipId);
 
+  // รีเซ็ตชิปก่อนตั้งค่าเสมอ: รีจิสเตอร์ของ MPU6050 ไม่หายเมื่อ ESP32 รีเซ็ต (ชิปยังมีไฟเลี้ยง)
+  // ค่าค้างจากรอบก่อน เช่น gyro standby / low-power cycle จะทำให้อ่านค่าได้ 0 ทุกแกน
+  writeRegister(REG_PWR_MGMT_1, 0x80);  // DEVICE_RESET
+  delay(100);
+
   // ตั้งค่า Register:
   // 1. ปลุกชิป + เลือก Gyro X เป็น Clock Source เพื่อเสถียรภาพ
   writeRegister(REG_PWR_MGMT_1, 0x01);
+  // เปิดทุกแกนของ accel/gyro และปิด low-power wake (ล้าง STBY_* ที่อาจค้างมา)
+  writeRegister(REG_PWR_MGMT_2, 0x00);
   // 2. กำหนดย่านวัด Gyroscope +-500 deg/s (65.5 LSB / deg/s)
   writeRegister(REG_GYRO_CONFIG, 0x08);
   // 3. เปิด Low Pass Filter (DLPF) ~42Hz เพื่อกรอง Noise ความถี่สูง

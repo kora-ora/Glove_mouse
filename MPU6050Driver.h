@@ -34,6 +34,7 @@ private:
   static constexpr uint8_t REG_GYRO_CONFIG = 0x1B;
   static constexpr uint8_t REG_GYRO_XOUT_H = 0x43;
   static constexpr uint8_t REG_PWR_MGMT_1  = 0x6B;
+  static constexpr uint8_t REG_PWR_MGMT_2  = 0x6C;
   static constexpr uint8_t REG_WHO_AM_I    = 0x75;
 
   bool checkConnection(uint8_t addr) const;
