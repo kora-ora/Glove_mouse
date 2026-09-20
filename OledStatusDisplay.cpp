@@ -2,7 +2,8 @@
 
 #include "FlexClickManager.h"
 
-bool OledStatusDisplay::begin() {
+bool OledStatusDisplay::begin(const Ds3231Rtc *rtc) {
+  _rtc = rtc;
   _address = Config::OLED_I2C_ADDR;
   _available = _display.begin(_address, true);
   if (!_available) {
@@ -53,15 +54,23 @@ void OledStatusDisplay::update(bool connected, int activeSlot, const MousePacket
   _display.clearDisplay();
   _display.setTextSize(1);
   _display.setCursor(0, 16);
+  if (_rtc != nullptr) {
+    char time[9];
+    if (_rtc->readTime(time, sizeof(time))) {
+      _display.print("Time: ");
+      _display.println(time);
+    }
+  }
+  _display.setCursor(0, 30);
   if (connected && activeSlot >= 0) {
     _display.print("BLE: Connected ");
     _display.println(static_cast<char>('A' + activeSlot));
   } else {
     _display.println("BLE: Waiting...");
   }
-  _display.setCursor(0, 32);
+  _display.setCursor(0, 44);
   _display.printf("Move X:%+d Y:%+d\n", packet.dx, packet.dy);
-  _display.setCursor(0, 48);
+  _display.setCursor(0, 56);
   drawButtons(packet.buttons);
   _display.display();
 }

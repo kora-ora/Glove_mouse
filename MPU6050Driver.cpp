@@ -9,15 +9,11 @@ bool MPU6050Driver::begin(uint8_t preferredAddress) {
   activeAddress = preferredAddress;
   Serial.printf("🔍 [MPU6050] กำลังตรวจสอบที่ Address 0x%02X...\n", activeAddress);
 
-  // ตรวจสอบ I2C ACK หากไม่พบที่ 0x68 จะสลับไป 0x69 อัตโนมัติ
+  // DS3231 ใช้ 0x68 อยู่แล้ว จึงห้าม fallback ไป address นั้น:
+  // ถ้า AD0 ของ MPU6050 ยังต่อ GND การเขียน register จะไปแก้ RTC แทน
   if (!checkConnection(activeAddress)) {
-    if (activeAddress == Config::MPU_DEFAULT_ADDR && checkConnection(Config::MPU_BACKUP_ADDR)) {
-      activeAddress = Config::MPU_BACKUP_ADDR;
-      Serial.printf("✅ [MPU6050] ตรวจพบที่ Address สำรอง 0x%02X\n", activeAddress);
-    } else {
-      Serial.println("❌ [MPU6050] ไม่พบอุปกรณ์บน I2C Bus! กรุณาตรวจสอบสายและไฟเลี้ยง");
-      return false;
-    }
+    Serial.println("❌ [MPU6050] ไม่พบที่ 0x69! ตรวจว่า AD0 ของ MPU6050 ต่อ 3.3V และตรวจสาย/ไฟเลี้ยง");
+    return false;
   }
 
   // อ่านค่า Device ID (WHO_AM_I)

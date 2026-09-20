@@ -10,8 +10,10 @@ namespace Config {
   constexpr uint8_t  PIN_SDA            = 21;
   constexpr uint8_t  PIN_SCL            = 22;
   constexpr uint32_t I2C_CLOCK_SPEED    = 400000;  // 400kHz Fast Mode
-  constexpr uint8_t  MPU_DEFAULT_ADDR   = 0x68;
-  constexpr uint8_t  MPU_BACKUP_ADDR    = 0x69;
+  // DS3231 และ MPU6050 มี address มาตรฐาน 0x68 เหมือนกัน จึงต้องต่อ AD0 ของ MPU6050 กับ VCC
+  // เพื่อย้าย MPU6050 ไป 0x69 แล้วให้ DS3231 ใช้ 0x68 ตามปกติ
+  constexpr uint8_t  MPU_DEFAULT_ADDR   = 0x69;
+  constexpr uint8_t  RTC_DS3231_ADDR    = 0x68;
   constexpr uint8_t  INTERRUPT_PIN      = 4;        // ขา INT ของ MPU6050 → GPIO 4
   // ไลบรารี Arduino ใช้ I2C address แบบ 7-bit: 0x3C/0x3D
   // บาง datasheet ระบุเป็น 8-bit write address: 0x78/0x7A ตามลำดับ
@@ -20,6 +22,11 @@ namespace Config {
   constexpr uint8_t  OLED_WIDTH         = 128;
   constexpr uint8_t  OLED_HEIGHT        = 64;
   constexpr uint32_t OLED_REFRESH_MS    = 200;      // ลดการเขียน I2C ซ้ำโดยไม่จำเป็น
+
+  // Buzzer แบบ Active Buzzer (มีขา I/O, VCC, GND)
+  constexpr uint8_t  PIN_BUZZER          = 26;
+  constexpr bool     BUZZER_ACTIVE_HIGH  = true;
+  constexpr uint16_t BUZZER_SWITCH_MS    = 100;     // เสียงยืนยันเมื่อสลับ Host สำเร็จ
 
   // ==========================================
   // 2. การปรับแต่งความไวและการเคลื่อนที่ของเมาส์
