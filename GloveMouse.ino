@@ -8,6 +8,8 @@
 #include "HidMouseService.h"
 #include "TouchTapDetector.h"
 #include "ClipboardService.h"
+#include "Buzzer.h"
+#include "Ds3231Rtc.h"
 #include "OledStatusDisplay.h"
 
 // =============================================================================
@@ -19,6 +21,8 @@ FlexClickManager  flexClick;
 HidMouseService   hidMouse;
 TouchTapDetector  touchTap;
 ClipboardService  clipboard;
+Ds3231Rtc         rtc;
+Buzzer            buzzer;
 OledStatusDisplay oled;
 
 // FreeRTOS Handles
@@ -110,11 +114,14 @@ void TaskBleMouse(void *pvParameters) {
     if (taps == 1) {
       if (hidMouse.isPaused()) hidMouse.resume(); else hidMouse.pause();
     } else if (taps >= 2) {
-      hidMouse.switchHost();
+      if (hidMouse.switchHost()) {
+        buzzer.beep(Config::BUZZER_SWITCH_MS);
+      }
     }
 
     hidMouse.service();
     clipboard.service();
+    buzzer.service();
   }
 }
 
@@ -133,8 +140,9 @@ void setup() {
   Wire.begin(Config::PIN_SDA, Config::PIN_SCL);
   Wire.setClock(Config::I2C_CLOCK_SPEED);
 
+  rtc.begin();
   // OLED ใช้ I2C bus เดียวกับ MPU6050: แสดงระหว่างการคาลิเบรต
-  oled.begin();
+  oled.begin(&rtc);
   oled.showCalibrating();
 
   // 2. เริ่มต้นและ Calibrate เซนเซอร์ MPU6050
@@ -162,6 +170,7 @@ void setup() {
 
   // 5. Capacitive touch (GPIO 27 = T7)
   touchTap.begin(Config::PIN_TOUCH);
+  buzzer.begin(Config::PIN_BUZZER, Config::BUZZER_ACTIVE_HIGH);
 
   // 5.1 สร้าง FreeRTOS Queue สำหรับสื่อสารระหว่าง Task
   mouseQueue = xQueueCreate(Config::QUEUE_LENGTH, sizeof(MousePacket));

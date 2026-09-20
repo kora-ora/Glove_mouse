@@ -5,12 +5,13 @@
 #include <Wire.h>
 #include <Adafruit_SH110X.h>
 #include "Config.h"
+#include "Ds3231Rtc.h"
 #include "MouseTypes.h"
 
 // จอ OLED SH1106 แบบ I2C สำหรับแสดงสถานะการใช้งานของ Air Mouse
 class OledStatusDisplay {
 public:
-  bool begin();
+  bool begin(const Ds3231Rtc *rtc = nullptr);
   void showCalibrating();
   void update(bool connected, int activeSlot, const MousePacket &packet);
 
@@ -19,6 +20,7 @@ private:
 
   Adafruit_SH1106G _display{Config::OLED_WIDTH, Config::OLED_HEIGHT, &Wire, -1};
   bool _available = false;
+  const Ds3231Rtc *_rtc = nullptr;
   uint8_t _address = Config::OLED_I2C_ADDR;
   uint32_t _lastRefreshAt = 0;
 };
