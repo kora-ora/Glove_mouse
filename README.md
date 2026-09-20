@@ -43,7 +43,7 @@ flowchart TD
     subgraph Core0 ["📡 Core 0 : TaskBleMouse (Priority 1)"]
         Q -- "xQueueReceive(Block)" --> D["อ่าน Packet จาก Queue"]
         D --> E{"BLE เชื่อมต่ออยู่?"}
-        E -- ใช่ --> F["bleMouse.move(dx, dy)"]
+        E -- ใช่ --> F["hidMouse.send(packet)"]
         E -- ไม่ใช่ --> G["พักรอการเชื่อมต่อ"]
         F -. ส่งข้อมูล .-> H["NimBLE Stack Engine"]
     end
@@ -51,12 +51,13 @@ flowchart TD
 
 ### รายละเอียดของแต่ละ Task:
 1. **`TaskSensor` (Core 1):**
-   * ทำงานด้วยรอบเวลาที่แม่นยำสูงระดับฮาร์ดแวร์ผ่าน `vTaskDelayUntil()` ทุก **10ms (100 Hz)**
+   * ทำงานแบบ event-driven: หลับรอ semaphore ที่ ISR ปล่อยเมื่อ MPU6050 มีข้อมูลใหม่ (ขา INT) ที่ **100 Hz**
    * อ่านค่าเชิงมุม $\rightarrow$ ลบ Drift Offset $\rightarrow$ กรองการสั่น $\rightarrow$ แพ็กเป็น `MousePacket` แล้วส่งเข้า Queue
    * รับประกันว่าการอ่านเซนเซอร์จะไม่สะดุด แม้ระบบบลูทูธจะมีช่วงดีเลย์
 2. **`TaskBleMouse` (Core 0):**
    * ทำงานร่วมกับแกนประมวลผล Bluetooth ภายในของ ESP32
-   * ใช้คำสั่ง `xQueueReceive()` แบบบล็อกรอ (`portMAX_DELAY`) คือถ้าไม่มีข้อมูลในคิว Task จะหลับไปทันที (0% CPU Usage) และตื่นขึ้นมาทำงานทันทีที่มีข้อมูลเข้ามา (Event-driven)
+   * รอข้อมูลจาก Queue สูงสุด 10 ms ต่อรอบ แล้วส่ง HID report ไปยังเครื่อง active (`HidMouseService::send`)
+   * ในรอบเดียวกันยังตรวจทัช (`TouchTapDetector`), คำสั่ง Serial (`s`/`t`/`b`), งาน clipboard และตรวจสุขภาพ BLE (`HidMouseService::service`)
 
 ---
 
@@ -123,15 +124,21 @@ OLED จะลอง I2C address `0x3C` ก่อน แล้วลอง `0x3D
 
 ## 📂 โครงสร้างไฟล์และแนวทางการอ่านโค้ด (Codebase Structure)
 
-เพื่อความเข้าใจในการพัฒนา แนะนำให้อ่านไฟล์เรียงตามลำดับ 5 ขั้นตอนดังนี้:
+เพื่อความเข้าใจในการพัฒนา แนะนำให้อ่านไฟล์เรียงตามลำดับดังนี้:
 
 | ลำดับ | ไฟล์ | หน้าที่และความรับผิดชอบ |
 |:---:|---|---|
-| **1** | [`Config.h`](file:///c:/Users/pingp/Arduino/GloveMouse/Config.h) | **จุดรวมการตั้งค่าทั้งหมด:** พิน I2C, ความไวเมาส์, Deadzone, ทิศทางแกน, และพารามิเตอร์ FreeRTOS |
-| **2** | [`MouseTypes.h`](file:///c:/Users/pingp/Arduino/GloveMouse/MouseTypes.h) | **โครงสร้างข้อมูล:** ประกาศ struct `MousePacket` ที่ใช้ส่งข้าม Task ผ่าน Queue |
-| **3** | [`MPU6050Driver.h`](file:///c:/Users/pingp/Arduino/GloveMouse/MPU6050Driver.h)<br>[`MPU6050Driver.cpp`](file:///c:/Users/pingp/Arduino/GloveMouse/MPU6050Driver.cpp) | **ไดรเวอร์ฮาร์ดแวร์:** สื่อสารกับรีจิสเตอร์ของ MPU6050 โดยตรง, ปลุกชิป, สลับ Address สำรองอัตโนมัติ, และคำนวณ Offset |
-| **4** | [`MotionProcessor.h`](file:///c:/Users/pingp/Arduino/GloveMouse/MotionProcessor.h)<br>[`MotionProcessor.cpp`](file:///c:/Users/pingp/Arduino/GloveMouse/MotionProcessor.cpp) | **ระบบคำนวณการเคลื่อนไหว:** รับค่าเชิงมุมดิบมาผ่านฟิลเตอร์ Deadzone และคำนวณออกมาเป็นระยะพิกเซล $dx, dy$ |
-| **5** | [`GloveMouse.ino`](file:///c:/Users/pingp/Arduino/GloveMouse/GloveMouse.ino) | **จุดเริ่มต้นระบบ (Main RTOS):** สร้าง Queue, แบ่ง Task ลง Core 0 / Core 1, และสั่งทำงานระบบ |
+| **1** | [`Config.h`](Config.h) | **จุดรวมการตั้งค่าทั้งหมด:** พิน, ความไว, Deadzone, calibrate, FreeRTOS, BLE, ทัช, clipboard |
+| **2** | [`MouseTypes.h`](MouseTypes.h) | struct `MousePacket` ที่ส่งข้าม Task ผ่าน Queue |
+| **3** | [`MPU6050Driver`](MPU6050Driver.cpp) | ไดรเวอร์ I2C ของ MPU6050: sample rate, interrupt, calibrate (วัดซ้ำจนนิ่ง) |
+| **4** | [`MotionProcessor`](MotionProcessor.cpp) | แปลงค่าเชิงมุมเป็นระยะ dx, dy (offset, deadzone, ความไว) |
+| **5** | [`FlexClickManager`](FlexClickManager.cpp) | อ่าน flex sensor 2 ตัวเป็นปุ่มคลิกซ้าย/ขวา |
+| **6** | [`HidMouseService`](HidMouseService.cpp) | เมาส์ BLE HID บน NimBLE ต่อได้ 2 เครื่อง สลับเครื่อง/หยุดทำงาน ดูแลการเชื่อมต่อ |
+| **7** | [`TouchTapDetector`](TouchTapDetector.cpp) | นับการแตะ capacitive touch (1 ครั้ง / 2 ครั้ง) |
+| **8** | [`ClipboardStore`](ClipboardStore.cpp), [`ClipboardService`](ClipboardService.cpp) | ที่เก็บข้อความในแรม และ GATT service ของ clipboard |
+| **9** | [`OledStatusDisplay`](OledStatusDisplay.cpp) | แสดงสถานะบนจอ OLED SH1106 (ถ้าต่ออยู่) |
+| **10** | [`GloveMouse.ino`](GloveMouse.ino) | **จุดเริ่มต้นระบบ:** สร้าง Queue, แบ่ง Task ลง Core 0 / Core 1 |
+| — | [`companion/`](companion/README.md) | โปรแกรมบน Windows ที่ sync clipboard ผ่านถุงมือ |
 
 ---
 
@@ -155,7 +162,7 @@ OLED จะลอง I2C address `0x3C` ก่อน แล้วลอง `0x3D
 ### 4. ต่อ 2 เครื่องและสลับเครื่อง
 - ถุงมือต่อได้พร้อมกัน 2 เครื่อง: pair เครื่องที่สองด้วยวิธีเดียวกับข้อ 3 (ถุงมือยัง advertise ต่อเนื่อง)
 - เครื่องที่ต่อก่อนเป็น **A** เครื่องถัดไปเป็น **B** (ดู Serial Monitor `Active: A/B`)
-- ควบคุมด้วย **capacitive touch ที่ GPIO 27 (T7)** (แตะ = ค่า `touchRead` ต่ำกว่า `TOUCH_THRESHOLD` = 700):
+- ควบคุมด้วย **capacitive touch ที่ GPIO 27 (T7)** (แตะ = ค่า `touchRead` ต่ำกว่า `TOUCH_THRESHOLD` ใน `Config.h`):
   - แตะ **1 ครั้ง** = สลับ ทำงาน ↔ หยุด (ตอนหยุดจะปล่อยปุ่มคลิกที่ค้าง แล้วไม่ส่งข้อมูลเมาส์)
   - แตะ **2 ครั้ง** = สลับเครื่อง A ↔ B (สถานะทำงาน/หยุดคงเดิม)
   - ตรวจจำนวนครั้งด้วยหน้าต่าง 400 ms ดังนั้นแตะครั้งเดียวจะตอบสนองหลังจากนั้นเล็กน้อย
@@ -192,12 +199,12 @@ Packet: `[type u8][msgId u8][seq u16 LE][payload]`
 
 ## ⚙️ การปรับจูนพารามิเตอร์ (Tuning Parameters)
 
-สามารถปรับจูนความรู้สึกในการใช้งานได้ง่ายๆ ผ่านไฟล์ [`Config.h`](file:///c:/Users/pingp/Arduino/GloveMouse/Config.h):
+สามารถปรับจูนความรู้สึกในการใช้งานได้ง่ายๆ ผ่านไฟล์ [`Config.h`](Config.h):
 
 ```cpp
 // ปรับความเร็วของเคอร์เซอร์ (ยิ่งมากยิ่งเร็ว)
-constexpr float SENSITIVITY_X = 250.0f;  // ที่ sample rate 100 Hz
-constexpr float SENSITIVITY_Y = 250.0f;
+constexpr float SENSITIVITY_X = 50.0f;  // ที่ sample rate 100 Hz (rate x sensitivity = 5000)
+constexpr float SENSITIVITY_Y = 50.0f;
 
 // ปรับค่าตัดอาการมือสั่น (ถ้าเคอร์เซอร์ยังกระตุกตอนอยู่นิ่ง ให้เพิ่มค่านี้ เช่น 0.08 - 0.10)
 constexpr float DEADZONE = 0.06f;
@@ -212,8 +219,8 @@ constexpr bool INVERT_Y = true;  // true = สลับขึ้น-ลง
 ## 🗺️ แผนการต่อยอดในอนาคต (Roadmap)
 
 โครงสร้างโค้ดแบบ FreeRTOS ปัจจุบันถูกเตรียมพร้อมสำหรับการเพิ่มฟังก์ชันเหล่านี้ได้ทันที:
-* [ ] **Clutch Switch (ปุ่มตัดการทำงานชั่วคราว):** ปิดการส่งค่าชั่วคราวเพื่อให้ผู้ใช้สามารถยกมือกลับมาตำแหน่งตั้งต้นได้
-* [ ] **Flex Sensors (ตรวจจับการงอนิ้ว):**
+* [x] **Clutch Switch (ตัดการทำงานชั่วคราว):** แตะทัช 1 ครั้งเพื่อหยุด/ทำงานต่อ ให้ยกมือกลับมาตำแหน่งตั้งต้นได้
+* [x] **Flex Sensors (ตรวจจับการงอนิ้ว) เขียนโค้ดแล้ว รอต่อเซนเซอร์จริง:**
   * นิ้วชี้งอ $\rightarrow$ คลิกซ้าย (Left Click)
   * นิ้วกลางงอ $\rightarrow$ คลิกขวา (Right Click)
 * [ ] **Gesture Recognition:** ตรวจจับท่าทางการสะบัดมือสำหรับการ Scroll หรือ Back / Forward หน้าเว็บ

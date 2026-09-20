@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-// Bitmask ตรงกับ MOUSE_LEFT/MOUSE_RIGHT ของไลบรารี BleMouse (Arduino Mouse convention)
+// Bitmask ของปุ่มใน HID report (bit 0 = ซ้าย, bit 1 = ขวา) ตรงกับ Report Map ใน HidMouseService
 constexpr uint8_t FLEX_BUTTON_LEFT  = 0b01;
 constexpr uint8_t FLEX_BUTTON_RIGHT = 0b10;
 

@@ -42,7 +42,6 @@ namespace Config {
   // ==========================================
   // 4. FreeRTOS Tasks และ คิวข้อมูล (Queue)
   // ==========================================
-  constexpr uint32_t SENSOR_SAMPLE_RATE_MS = 10;   // อ่านเซนเซอร์ทุก 10ms (100 Hz) (ใช้เมื่อไม่ใช้ interrupt)
   constexpr UBaseType_t QUEUE_LENGTH       = 10;   // ขนาดบัฟเฟอร์ของคิวส่งข้อมูลเมาส์
 
   // Stack Sizes (หน่วยเป็น Words ใน ESP32 FreeRTOS, 1 word = 4 bytes)

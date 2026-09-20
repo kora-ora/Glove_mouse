@@ -7,7 +7,7 @@
 struct MousePacket {
   int8_t  dx;       // ระยะเคลื่อนที่แกน X (-127 ถึง 127)
   int8_t  dy;       // ระยะเคลื่อนที่แกน Y (-127 ถึง 127)
-  uint8_t buttons;  // บิตแสดงสถานะปุ่มคลิก (เตรียมไว้สำหรับ Flex Sensor / Buttons ในอนาคต)
+  uint8_t buttons;  // บิตแสดงสถานะปุ่มคลิกปัจจุบัน (bit 0 = ซ้าย, bit 1 = ขวา) มาจาก Flex Sensor
 };
 
 #endif // MOUSE_TYPES_H
