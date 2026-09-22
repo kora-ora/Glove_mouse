@@ -9,12 +9,18 @@ void FlexClickManager::begin(uint8_t pinIndex, uint8_t pinMiddle) {
 }
 
 void FlexClickManager::calibrate() {
-  long sumIndex = 0;
-  long sumMiddle = 0;
+  long sumIndex = 0, sumMiddle = 0;
+  int loIndex = 4095, hiIndex = 0, loMiddle = 4095, hiMiddle = 0;
 
   for (int i = 0; i < Config::FLEX_CALIB_SAMPLES; i++) {
-    sumIndex += analogRead(_pinIndex);
-    sumMiddle += analogRead(_pinMiddle);
+    int vIndex = analogRead(_pinIndex);
+    int vMiddle = analogRead(_pinMiddle);
+    sumIndex += vIndex;
+    sumMiddle += vMiddle;
+    loIndex = min(loIndex, vIndex);
+    hiIndex = max(hiIndex, vIndex);
+    loMiddle = min(loMiddle, vMiddle);
+    hiMiddle = max(hiMiddle, vMiddle);
     delay(Config::FLEX_CALIB_DELAY_MS);
   }
 
@@ -23,6 +29,16 @@ void FlexClickManager::calibrate() {
 
   _indexFinger.filtered = _baselineIndex;
   _middleFinger.filtered = _baselineMiddle;
+
+  // ค่าแกว่งกว้างเกินไประหว่าง calibrate (มือนิ่งอยู่แล้วในขั้นนี้) = ขา ADC ลอย ไม่ได้ต่อเซนเซอร์จริง
+  // ปิดการตรวจจับคลิกของนิ้วนั้นไว้ กันคลิกเองจากสัญญาณรบกวน (ต้องรีเซ็ตบอร์ดหลังต่อเซนเซอร์เพื่อ calibrate ใหม่)
+  _indexFinger.connected = (hiIndex - loIndex) <= Config::FLEX_CALIB_MAX_RANGE;
+  _middleFinger.connected = (hiMiddle - loMiddle) <= Config::FLEX_CALIB_MAX_RANGE;
+
+  Serial.printf("[FLEX] นิ้วชี้  baseline=%d แกว่ง=%d %s\n", _baselineIndex, hiIndex - loIndex,
+                _indexFinger.connected ? "" : "-> !! ไม่พบเซนเซอร์ (ขาลอย) ปิดคลิกซ้ายไว้");
+  Serial.printf("[FLEX] นิ้วกลาง baseline=%d แกว่ง=%d %s\n", _baselineMiddle, hiMiddle - loMiddle,
+                _middleFinger.connected ? "" : "-> !! ไม่พบเซนเซอร์ (ขาลอย) ปิดคลิกขวาไว้");
 }
 
 int FlexClickManager::readFiltered(uint8_t pin, FingerState &finger) {
@@ -32,6 +48,8 @@ int FlexClickManager::readFiltered(uint8_t pin, FingerState &finger) {
 }
 
 bool FlexClickManager::updateFinger(FingerState &finger, int rawValue, int baseline) {
+  if (!finger.connected) return false;  // ไม่ได้ต่อเซนเซอร์ (ตรวจตอน calibrate) ไม่ต้องเสี่ยงอ่านสัญญาณรบกวนเป็นคลิก
+
   // งอนิ้ว -> ค่า ADC ลดลง (ตามวงจร voltage divider ที่ใช้จริง)
   int pressThreshold = baseline - Config::FLEX_PRESS_MARGIN;
   int releaseThreshold = baseline - Config::FLEX_RELEASE_MARGIN;

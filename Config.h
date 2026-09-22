@@ -27,6 +27,7 @@ namespace Config {
   constexpr uint8_t  PIN_BUZZER          = 26;
   constexpr bool     BUZZER_ACTIVE_HIGH  = true;
   constexpr uint16_t BUZZER_SWITCH_MS    = 100;     // เสียงยืนยันเมื่อสลับ Host สำเร็จ
+  constexpr uint16_t BUZZER_TAP_MS       = 40;      // เสียงสั้นยืนยันว่าแตะทัชติด (แตะ 1 ครั้ง = หยุด/ทำงานต่อ)
 
   // ==========================================
   // 2. การปรับแต่งความไวและการเคลื่อนที่ของเมาส์
@@ -74,6 +75,9 @@ namespace Config {
   constexpr int      FLEX_RELEASE_MARGIN   = 150;  // < PRESS_MARGIN กันสัญญาณกระตุก
   constexpr float    FLEX_FILTER_ALPHA     = 0.3f; // EMA กันสัญญาณแกว่ง
   constexpr uint8_t  FLEX_DEBOUNCE_SAMPLES = 3;    // 3 samples * 10ms = 30ms
+  // ขา 34/35 เป็น input-only ไม่มี pull resistor ในตัว ถ้าไม่ได้ต่อ flex sensor เลยค่าจะลอย (floating)
+  // แกว่งสุ่มได้กว้างมาก (มากกว่าสัญญาณรบกวนของเซนเซอร์จริงที่ต่ออยู่หลายเท่า) ตรวจตอน calibrate แล้วปิดนิ้วนั้นไว้กันคลิกหลอน
+  constexpr int      FLEX_CALIB_MAX_RANGE  = 150;  // ช่วงกว้างสูงสุดที่ยอมรับว่า "มีเซนเซอร์ต่ออยู่จริง" ตอน calibrate
 
   // ==========================================
   // 6. BLE Multi-Host (ต่อได้ 2 เครื่อง สลับด้วยปุ่ม)

@@ -16,6 +16,7 @@ bool OledStatusDisplay::begin(const Ds3231Rtc *rtc) {
   }
 
   Serial.printf("✅ [OLED] SH1106 พร้อมใช้งานที่ I2C address 0x%02X\n", _address);
+  _display.setRotation(2);  // จอต่อกลับหัวบนถุงมือ หมุนภาพ 180 องศาเพื่อแก้ (0=ปกติ, 2=กลับหัว)
   _display.clearDisplay();
   _display.setTextColor(SH110X_WHITE);
   _display.display();

@@ -36,6 +36,7 @@ SemaphoreHandle_t mpuSemaphore    = nullptr;  // Binary Semaphore สำหร�
 // ค่า debug ล่าสุดไว้ดูผ่านคำสั่ง 'g' ใน Serial Monitor (เขียนจาก TaskSensor, อ่านจาก TaskBleMouse)
 volatile float gDebugGx = 0, gDebugGy = 0, gDebugGz = 0;
 volatile int8_t gDebugDx = 0, gDebugDy = 0;
+volatile uint8_t gDebugButtons = 0;  // ค่าปุ่ม (flex) ล่าสุด ไว้ดูผ่านคำสั่ง 'g' เทียบตอนแตะทัช (เช็คว่าทัชรบกวนขา flex หรือไม่)
 
 // =============================================================================
 // Interrupt Service Routine (ISR) - ต้องอยู่ใน IRAM เพื่อป้องกัน Crash
@@ -92,6 +93,7 @@ void TaskSensor(void *pvParameters) {
 
         // ตรวจสถานะ Flex Sensor (คลิกซ้าย/ขวา)
         packet.buttons |= flexClick.update();
+        gDebugButtons = packet.buttons;
 
         // I2C ถูกใช้งานจาก TaskSensor เพียง task เดียวหลัง setup จึงไม่ชนกับการอ่าน MPU6050
         oled.update(hidMouse.isConnected(), hidMouse.activeSlot(), packet);
@@ -162,16 +164,18 @@ void TaskBleMouse(void *pvParameters) {
         Serial.printf("👆 [TOUCH] value=%lu (แตะ = ต่ำกว่า %lu)\n",
                       (unsigned long)touchTap.rawValue(), (unsigned long)Config::TOUCH_THRESHOLD);
       } else if (cmd == 'g') {
-        Serial.printf("🕹️ [GYRO] gx=%.4f gy=%.4f gz=%.4f rad/s -> dx=%d dy=%d paused=%s\n",
-                      gDebugGx, gDebugGy, gDebugGz, gDebugDx, gDebugDy, hidMouse.isPaused() ? "ใช่" : "ไม่");
+        Serial.printf("🕹️ [GYRO] gx=%.4f gy=%.4f gz=%.4f rad/s -> dx=%d dy=%d buttons=0x%02X paused=%s\n",
+                      gDebugGx, gDebugGy, gDebugGz, gDebugDx, gDebugDy, gDebugButtons, hidMouse.isPaused() ? "ใช่" : "ไม่");
       }
     }
+    // ทุก gesture ที่แตะติดจริงจะบี๊บให้รู้ตัวเสมอ (สั้น/กลาง ต่างกันตามจำนวนครั้ง) แม้ผลลัพธ์จะทำไม่สำเร็จก็ตาม
+    // (เช่นแตะ 2 ครั้งตอนมีเครื่องเดียว) เพื่อยืนยันว่าทัชจับการแตะได้ แยกจากปัญหาเรื่องผลลัพธ์
     if (taps == 1) {
+      buzzer.beep(Config::BUZZER_TAP_MS);
       if (hidMouse.isPaused()) hidMouse.resume(); else hidMouse.pause();
     } else if (taps >= 2) {
-      if (hidMouse.switchHost()) {
-        buzzer.beep(Config::BUZZER_SWITCH_MS);
-      }
+      buzzer.beep(Config::BUZZER_SWITCH_MS);
+      hidMouse.switchHost();
     }
 
     hidMouse.service();

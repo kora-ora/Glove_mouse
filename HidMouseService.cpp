@@ -118,9 +118,11 @@ bool HidMouseService::switchHost() {
     return false;
   }
 
+  const uint8_t buttonsAtSwitch = _lastButtons;  // ไว้พิมพ์ debug เทียบว่ามีปุ่มค้างตอนสลับจริงไหม
   sendReport(_handle[current], 0, 0, 0);  // ปล่อยปุ่มที่ค้างบนเครื่องเดิมก่อนสลับ
+  _lastButtons = 0;  // เครื่องใหม่ยังไม่เคยรู้จักปุ่มค้าง ต้องเริ่มที่ 0 เสมอ (ไม่งั้น keep-alive อาจส่งปุ่มค้างเดิมไปกดเครื่องใหม่ทันที)
   _active = next;
-  Serial.printf("🔀 [BLE] Active: %c\n", 'A' + next);
+  Serial.printf("🔀 [BLE] Active: %c (ปุ่มขณะสลับ=0x%02X)\n", 'A' + next, buttonsAtSwitch);
   return true;
 }
 

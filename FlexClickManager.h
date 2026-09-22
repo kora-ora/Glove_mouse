@@ -23,6 +23,7 @@ private:
     bool candidateState = false;
     uint8_t debounceCount = 0;
     float filtered = 0;
+    bool connected = true;  // false = ตอน calibrate ค่าแกว่งเกินไป (ไม่ได้ต่อเซนเซอร์/ขาลอย) ปิดการตรวจจับคลิกของนิ้วนี้
   };
 
   int readFiltered(uint8_t pin, FingerState &finger);
