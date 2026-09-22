@@ -47,6 +47,8 @@ private:
   volatile bool     _paramsChecked[Config::MAX_HOSTS] = {true, true};
   uint32_t          _lastAdvCheckMs = 0;
   uint32_t          _lastAdvLogMs = 0;
+  uint32_t          _lastTxMs[Config::MAX_HOSTS] = {0, 0};  // เวลาส่ง report ล่าสุดของแต่ละ slot (ไว้ทำ keep-alive)
+  uint8_t           _lastButtons = 0;                       // สถานะปุ่มล่าสุดที่ส่งให้เครื่อง active
   volatile int      _active = 0;
   volatile bool     _paused = false;
 };

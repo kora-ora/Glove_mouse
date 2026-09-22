@@ -87,6 +87,9 @@ namespace Config {
   constexpr uint16_t BLE_CONN_TIMEOUT      = 400;   // supervision timeout หน่วย 10 ms = 4 วินาที (ทนสัญญาณหายชั่วคราว)
   constexpr uint32_t BLE_PARAM_CHECK_DELAY_MS = 2000;
   constexpr uint32_t BLE_ADV_CHECK_MS      = 1000;  // ตรวจว่ายัง advertise อยู่ตราบใดที่มีช่องว่าง
+  // ส่ง HID report ว่าง (ไม่ขยับ) ให้ทุกเครื่องที่ต่ออยู่ทุกกี่ ms ตอนที่ไม่มีข้อมูลอื่นให้ส่ง (0 = ปิด)
+  // ลิงก์ที่เงียบนานๆ มักถูกตัวรับ Bluetooth ของ Windows ตัดเพื่อประหยัดไฟ (power management)
+  constexpr uint32_t HID_KEEPALIVE_MS      = 5000;
   constexpr uint16_t BLE_ADV_INTERVAL_MIN  = 80;    // หน่วย 0.625 ms = 50 ms
   constexpr uint16_t BLE_ADV_INTERVAL_MAX  = 160;   // 100 ms
   constexpr int8_t   BLE_TX_POWER_DBM      = 9;     // กำลังส่งสูงสุดของ ESP32 (+9 dBm)

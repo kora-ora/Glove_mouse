@@ -68,6 +68,8 @@ int HidMouseService::pickConnectedSlot(int preferred) const {
 
 bool HidMouseService::sendReport(uint16_t connHandle, uint8_t buttons, int8_t dx, int8_t dy) {
   const uint8_t report[3] = {buttons, static_cast<uint8_t>(dx), static_cast<uint8_t>(dy)};
+  const int slot = slotOfHandle(connHandle);
+  if (slot >= 0) _lastTxMs[slot] = millis();
   return _input->notify(report, sizeof(report), connHandle);
 }
 
@@ -75,6 +77,7 @@ void HidMouseService::pause() {
   if (_paused) return;
   int slot = pickConnectedSlot(_active);
   if (slot >= 0) sendReport(_handle[slot], 0, 0, 0);  // ปล่อยปุ่มที่ค้างก่อนหยุด
+  _lastButtons = 0;
   _paused = true;
   Serial.println("⏸️ [STATE] หยุดทำงาน");
 }
@@ -95,7 +98,9 @@ bool HidMouseService::send(const MousePacket &packet) {
     _active = slot;
     Serial.printf("🔁 [BLE] Host หลุด -> Active: %c\n", 'A' + slot);
   }
-  return sendReport(_handle[slot], packet.buttons, packet.dx, packet.dy);
+  const bool ok = sendReport(_handle[slot], packet.buttons, packet.dx, packet.dy);
+  if (ok) _lastButtons = packet.buttons;
+  return ok;
 }
 
 bool HidMouseService::switchHost() {
@@ -147,6 +152,16 @@ static const char *describeReason(int reason) {
 void HidMouseService::service() {
   const uint32_t now = millis();
 
+  // Keep-alive: ลิงก์ที่ไม่มี report นานๆ อาจถูก Windows ตัด ส่ง report ว่าง (ไม่ขยับ) ให้ทุกเครื่องที่ต่ออยู่เป็นระยะ
+  // เครื่อง active ส่งสถานะปุ่มปัจจุบันไปด้วย (ไม่ปล่อยปุ่มที่กดค้างอยู่) เครื่องอื่นส่งปุ่มว่าง
+  if (Config::HID_KEEPALIVE_MS > 0) {
+    for (int i = 0; i < Config::MAX_HOSTS; i++) {
+      if (_handle[i] == NO_CONN || now - _lastTxMs[i] < Config::HID_KEEPALIVE_MS) continue;
+      const uint8_t buttons = (i == _active && !_paused) ? _lastButtons : 0;
+      sendReport(_handle[i], buttons, 0, 0);  // sendReport อัปเดต _lastTxMs เอง กันส่งรัวถ้าเครื่องยังไม่ subscribe
+    }
+  }
+
   // ตราบใดที่ยังมีช่องว่าง ต้อง advertise อยู่เสมอ: การเริ่ม advertise ใน callback อาจล้มเหลวเงียบๆ
   // ทำให้บอร์ด "หายไป" จากการค้นหา ตัวนี้ตรวจซ้ำและเริ่มใหม่ให้
   if (now - _lastAdvCheckMs >= Config::BLE_ADV_CHECK_MS) {
@@ -185,17 +200,24 @@ void HidMouseService::service() {
 
 void HidMouseService::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) {
   NimBLEAddress addr = connInfo.getIdAddress();
+  // ตอน onConnect ยิง identity address อาจยัง resolve ไม่เสร็จ (bonding เกิดทีหลัง ดู onAuthenticationComplete)
+  // แล้วได้ address ว่าง 00:00:00:00:00:00 ชั่วคราว ถ้าเอาไปเทียบ/จับคู่ slot จะเข้าใจผิดว่าเป็นเครื่องเดิมกับ
+  // เครื่องอื่นที่เคยเจอสถานการณ์เดียวกัน (ทั้งคู่ address ว่างเหมือนกัน) แล้วไปตัดลิงก์ของเครื่องนั้นทิ้งผิดๆ
+  // จึงห้ามใช้ address ว่างจับคู่ slot เด็ดขาด ให้ตกไปใช้ slot ว่างแรกแทน (ไม่ผูกกับเครื่องเดิม)
+  const bool addrKnown = !addr.isNull();
 
   // เครื่องเดิมได้ slot เดิม, ไม่งั้นใช้ slot ว่างแรก
   int slot = -1;
-  for (int i = 0; i < Config::MAX_HOSTS; i++) {
-    if (_hasAddr[i] && _addr[i] == addr && _handle[i] == NO_CONN) { slot = i; break; }
-  }
-  // เครื่องเดิมต่อกลับมาทั้งที่ลิงก์เก่ายังค้างอยู่ (ยังไม่ทันหมดเวลา timeout): ตัดลิงก์เก่าแล้วใช้ slot เดิม
-  for (int i = 0; slot < 0 && i < Config::MAX_HOSTS; i++) {
-    if (_hasAddr[i] && _addr[i] == addr && _handle[i] != NO_CONN) {
-      server->disconnect(_handle[i]);
-      slot = i;
+  if (addrKnown) {
+    for (int i = 0; i < Config::MAX_HOSTS; i++) {
+      if (_hasAddr[i] && _addr[i] == addr && _handle[i] == NO_CONN) { slot = i; break; }
+    }
+    // เครื่องเดิมต่อกลับมาทั้งที่ลิงก์เก่ายังค้างอยู่ (ยังไม่ทันหมดเวลา timeout): ตัดลิงก์เก่าแล้วใช้ slot เดิม
+    for (int i = 0; slot < 0 && i < Config::MAX_HOSTS; i++) {
+      if (_hasAddr[i] && _addr[i] == addr && _handle[i] != NO_CONN) {
+        server->disconnect(_handle[i]);
+        slot = i;
+      }
     }
   }
   for (int i = 0; slot < 0 && i < Config::MAX_HOSTS; i++) {
@@ -209,11 +231,15 @@ void HidMouseService::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) 
     return;
   }
 
-  _addr[slot] = addr;
-  _hasAddr[slot] = true;
+  // เก็บ address ไว้จับคู่ครั้งหน้า เฉพาะตอนที่ resolve ได้จริงเท่านั้น (ตอน addrKnown=false ปล่อยของเดิมไว้ ถ้ามี)
+  if (addrKnown) {
+    _addr[slot] = addr;
+    _hasAddr[slot] = true;
+  }
   // เครื่องแรกที่ต่อเข้ามาเป็น active ทันที (ไม่พึ่ง getConnectedCount ที่อาจรวมหรือไม่รวมเครื่องนี้)
   bool otherConnected = pickConnectedSlot(-1) >= 0;
   _connectedAtMs[slot] = millis();
+  _lastTxMs[slot] = millis();
   _paramsChecked[slot] = false;
   _handle[slot] = connInfo.getConnHandle();
   if (!otherConnected) _active = slot;
