@@ -1,8 +1,10 @@
-"""Glove Clipboard: โปรแกรม tray บน Windows ที่ sync ข้อความ clipboard ผ่านถุงมือ
+"""Glove Clipboard: โปรแกรม tray ที่ sync ข้อความ clipboard ผ่านถุงมือ (รันได้ทั้ง Windows และ Linux)
 
-  python app.py [--address AA:BB:CC:DD:EE:FF] [--name "Glove Air Mouse"]
+  python app.py [--address AA:BB:CC:DD:EE:FF] [--name "Glove Air Mouse"] [--thingspeak-key KEY]
 
 Ctrl+C บนเครื่องนี้ -> ส่งเข้า ESP32 -> อีกเครื่องที่รันโปรแกรมนี้ได้รับและใส่เข้า clipboard
+
+บน Linux ต้องมี X11 desktop และติดตั้ง xclip ก่อน: sudo apt install xclip
 """
 import argparse
 import asyncio
@@ -13,8 +15,12 @@ import threading
 import pystray
 from PIL import Image, ImageDraw
 
-import clipboard_win as clip
+if sys.platform == "win32":
+    import clipboard_win as clip
+else:
+    import clipboard_linux as clip
 from ble_client import GloveLink
+from thingspeak_worker import ThingSpeakWorker
 
 log = logging.getLogger("glove")
 
@@ -40,13 +46,17 @@ def make_image(color):
 
 
 class App:
-    def __init__(self, address, name):
+    def __init__(self, address, name, thingspeak_key=None):
         self.state = "disconnected"
         self.paused = False
         self.stopping = False
         self._ignore_seq = None  # หมายเลข clipboard sequence ที่แอปเป็นคนเขียนเอง (ไม่ใช่การ copy ใหม่)
+        self._reconnect_count = 0  # จำนวนครั้งที่ลิงก์ BLE ต่อใหม่ (นับตั้งแต่เปิดแอป) -> field4
+        self.ts_worker = ThingSpeakWorker(thingspeak_key)  # ไม่ใส่ key = เธรดนี้ไม่ทำอะไรเลย (ดู thingspeak_worker.py)
+        self.ts_worker.start()
         self.loop = asyncio.new_event_loop()
-        self.link = GloveLink(self._on_remote_text, self._on_state, address=address, name=name)
+        self.link = GloveLink(self._on_remote_text, self._on_state, address=address, name=name,
+                              on_relink=self._on_relink)
         self.icon = pystray.Icon(
             "glove-clipboard",
             make_image(STATE_COLOR[self.state]),
@@ -89,6 +99,11 @@ class App:
         self.state = state
         self._refresh_icon()
 
+    def _on_relink(self, _lived_seconds):
+        # เรียกทุกครั้งที่ลิงก์ BLE ต่อใหม่ (รวมครั้งแรกตอนเปิดแอป) -> นับสะสมไว้ดูความเสถียรระยะยาวเป็นกราฟ
+        self._reconnect_count += 1
+        self.ts_worker.submit(field4=self._reconnect_count)
+
     def _on_remote_text(self, text):
         if self.paused:
             return
@@ -99,6 +114,7 @@ class App:
             log.warning("ใส่ clipboard ไม่ได้: %s", exc)
             return
         log.info("ได้รับข้อความ %d ตัวอักษร", len(text))
+        self.ts_worker.submit(field1=len(text))
         self._notify("ได้รับข้อความจากอีกเครื่องแล้ว กด Ctrl+V ได้เลย")
 
     # ---------- ดัก clipboard ----------
@@ -115,9 +131,10 @@ class App:
             text = await asyncio.get_running_loop().run_in_executor(None, clip.read_text)
             if text is None:
                 continue  # ไม่ใช่ข้อความล้วน / password manager ห้ามยุ่ง / ว่าง
-            ok, message = await self.link.send_text(text)
+            ok, message, latency_ms = await self.link.send_text(text)
             if ok:
-                log.info("ส่งข้อความ %d ตัวอักษรแล้ว", len(text))
+                log.info("ส่งข้อความ %d ตัวอักษรแล้ว (%.0f ms)", len(text), latency_ms)
+                self.ts_worker.submit(field1=len(text), field5=round(latency_ms, 1))
             else:
                 log.warning("ส่งไม่สำเร็จ: %s", message)
                 self._notify(message)
@@ -135,14 +152,15 @@ class App:
 
 
 def main():
-    if sys.platform != "win32":
-        sys.exit("Glove Clipboard รองรับเฉพาะ Windows")
+    if sys.platform not in ("win32", "linux"):
+        sys.exit("Glove Clipboard รองรับเฉพาะ Windows และ Linux")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--address", help="BLE address ของถุงมือ (ถ้าไม่ใส่ จะหาจากรายการที่ pair ใน Windows เอง)")
+    parser.add_argument("--address", help="BLE address ของถุงมือ (ถ้าไม่ใส่ จะหาจากรายการที่ pair ใน Windows เอง, Linux ต้องระบุเอง)")
     parser.add_argument("--name", default="Glove Air Mouse", help="ชื่ออุปกรณ์ (ใช้ตอนสแกน)")
+    parser.add_argument("--thingspeak-key", help="Write API Key ของ ThingSpeak channel (ไม่ใส่ = ไม่ส่งขึ้น cloud)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    App(args.address, args.name).run()
+    App(args.address, args.name, args.thingspeak_key).run()
 
 
 if __name__ == "__main__":

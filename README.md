@@ -248,3 +248,26 @@ constexpr bool INVERT_Y = true;  // true = สลับขึ้น-ลง
   * นิ้วกลางงอ $\rightarrow$ คลิกขวา (Right Click)
 * [ ] **Gesture Recognition:** ตรวจจับท่าทางการสะบัดมือสำหรับการ Scroll หรือ Back / Forward หน้าเว็บ
 * [ ] **Battery Management:** อ่านระดับแรงดันแบตเตอรี่แล้วรายงานกลับไปยังคอมพิวเตอร์ผ่าน BLE HID Battery Service
+
+---
+
+## 📚 เนื้อหาที่เกี่ยวข้อง
+
+| เนื้อหา | ใช้ตรงไหนในโปรเจกต์ |
+|---|---|
+| Interrupts (ISR, pin-change) | `attachInterrupt` อ่าน MPU6050 data-ready, `touchAttachInterrupt` ของทัช |
+| SW Debouncing | `FlexClickManager` และ `TouchTapDetector` ใช้หลัก debounce เดียวกัน |
+| ADC Conversion | อ่านค่า flex sensor ผ่าน `analogRead` |
+| Buzzer / tone.h | `Buzzer.cpp` (active buzzer บน GPIO 26) |
+| Watchdog timer | ไม่ได้ใช้ |
+| Timer/PWM | ไม่ได้ใช้ตรงๆ (ไม่มี PWM/hardware timer ในโปรเจกต์) |
+| LCD | ไม่ได้ใช้ (ใช้ OLED I2C แทน) |
+| Interfacing Arduino กับ PC app (Python) | ตรงที่สุด — `companion/app.py` สื่อสารกับ ESP32 ผ่าน BLE (ขยายจาก serial เป็น BLE) |
+| I2C, PCF-8574 | บัส I2C ใช้กับ MPU6050, OLED, RTC ทั้งหมด |
+| RTC (DS-1307) | `Ds3231Rtc.cpp` — DS3231 ตระกูลเดียวกับ DS1307 อ่านเวลาแบบ BCD เหมือนกัน |
+| RTOS for Arduino | แกนหลักของทั้งโปรเจกต์ — FreeRTOS 2 Task บน dual-core, Queue, Semaphore |
+| Sleep mode of AVR | แนวคิดเดียวกับ `SleepController` (Idle mode) ที่เราทำ |
+| NodeMCU/Blynk (WiFi IoT) | ไม่ได้ใช้ตรงๆ (เราใช้ BLE ไม่ใช่ WiFi/Blynk) แต่แนวคิด "ไมโครคอนโทรลเลอร์ไร้สายคุยกับแอป" เดียวกัน |
+| Motors, Audio module, EEPROM/Wear-leveling, TM1638 | ไม่ได้ใช้ |
+| **Python Multithreading** (`threading.Thread`) | ใช้จริงใน [`companion/app.py`](companion/app.py): เธรดหลักรัน tray icon, เธรดที่สองรัน asyncio loop (BLE + เฝ้า clipboard), เธรดที่สาม [`ThingSpeakWorker`](companion/thingspeak_worker.py) ยิง HTTP ขึ้น cloud โดยเฉพาะ — สื่อสารกันผ่าน `queue.Queue` แบบ producer/consumer |
+| **ThingSpeak (Cloud IoT)** | [`companion/thingspeak.py`](companion/thingspeak.py) — ส่งจาก **companion app บนคอม** ไม่ใช่จาก ESP32 (เฟิร์มแวร์ใช้ BLE เท่านั้น ไม่มี WiFi/อินเทอร์เน็ต) บันทึกทุกครั้งที่ sync clipboard สำเร็จ และทุกครั้งที่ลิงก์ BLE ต่อใหม่ (ฟีเจอร์เสริม ใส่ `--thingspeak-key`) รายละเอียด field ดู [`companion/README.md`](companion/README.md) |

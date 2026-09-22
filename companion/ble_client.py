@@ -24,11 +24,12 @@ class GloveLink:
     on_state(state): "disconnected" | "connecting" | "connected"
     """
 
-    def __init__(self, on_text, on_state, address=None, name="Glove Air Mouse"):
+    def __init__(self, on_text, on_state, address=None, name="Glove Air Mouse", on_relink=None):
         self.address = address                  # ระบุเอง (ชนะทุกอย่าง)
         self.name = name
         self._on_text = on_text
         self._on_state = on_state
+        self._on_relink = on_relink  # (lived_seconds) เรียกทุกครั้งที่ต่อใหม่ ไว้ดูความเสถียรของ BLE ย้อนหลัง
         self._client = None
         self._connected = asyncio.Event()
         self._lost = asyncio.Event()
@@ -62,6 +63,8 @@ class GloveLink:
             # สุ่มเวลาเพิ่มเล็กน้อย กัน app ของสองเครื่องต่อพร้อมกันเป็นจังหวะเดียวกันจนแย่งกัน
             wait = delay + random.uniform(0.0, 1.0)
             log.info("ต่อได้นาน %.1f วินาที จะลองใหม่ใน %.1f วินาที", lived, wait)
+            if self._on_relink:
+                self._on_relink(lived)
             await asyncio.sleep(wait)
             delay = RECONNECT_MIN_DELAY if lived >= STABLE_SECONDS else min(delay * 2, RECONNECT_MAX_DELAY)
 
@@ -131,13 +134,14 @@ class GloveLink:
         await self._client.write_gatt_char(p.RX_UUID, packet, response=True)
 
     async def send_text(self, text: str):
-        """คืน (ok, ข้อความอธิบาย)"""
+        """คืน (ok, ข้อความอธิบาย, ms ที่ใช้ตั้งแต่เริ่มส่งจนถุงมือ ACK — ไม่ใช่เวลาที่อีกเครื่องได้รับจริง)"""
         data = text.encode("utf-8")
         if len(data) > p.MAX_BYTES:
-            return False, f"ข้อความยาว {len(data)} ไบต์ เกิน {p.MAX_BYTES}"
+            return False, f"ข้อความยาว {len(data)} ไบต์ เกิน {p.MAX_BYTES}", 0.0
         if not self.connected:
-            return False, "ยังไม่ได้ต่อถุงมือ"
+            return False, "ยังไม่ได้ต่อถุงมือ", 0.0
 
+        started = time.monotonic()
         async with self._lock:
             self._drain()
             self._last_crc = p.crc32(data)  # ตั้งก่อนส่ง: STATUS notify ที่ตามมาจะได้ไม่ดึงข้อความตัวเองกลับ
@@ -146,15 +150,16 @@ class GloveLink:
                     await self._write(packet)
                 reply = await asyncio.wait_for(self._inbox.get(), ACK_TIMEOUT)
             except asyncio.TimeoutError:
-                return False, "ถุงมือไม่ตอบรับ (timeout)"
+                return False, "ถุงมือไม่ตอบรับ (timeout)", 0.0
             except Exception as exc:
-                return False, f"ส่งไม่สำเร็จ: {exc}"
+                return False, f"ส่งไม่สำเร็จ: {exc}", 0.0
+        elapsed_ms = (time.monotonic() - started) * 1000
 
         ptype, _mid, _seq, payload = p.parse(reply)
         if ptype == p.ACK:
-            return True, "ส่งแล้ว"
+            return True, "ส่งแล้ว", elapsed_ms
         code = payload[0] if payload else 0
-        return False, p.ERROR_NAMES.get(code, f"ถุงมือปฏิเสธ (code {code})")
+        return False, p.ERROR_NAMES.get(code, f"ถุงมือปฏิเสธ (code {code})"), 0.0
 
     # ---------- ดึงข้อความจาก ESP32 ----------
     async def _fetch(self):
