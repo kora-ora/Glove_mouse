@@ -144,6 +144,7 @@ static const char *describeReason(int reason) {
   switch (reason) {
     case 520: return "สัญญาณหาย/ไม่ตอบ (supervision timeout)";
     case 531: return "เครื่องที่ต่อ (host) เป็นฝ่ายตัด";
+    case 533: return "อีกฝั่ง (host) ตัดเพราะทรัพยากรฝั่งนั้นไม่พอ";
     case 534: return "ESP32 เป็นฝ่ายตัด";
     case 573: return "MIC failure: key เข้ารหัสไม่ตรงกัน (ลบอุปกรณ์แล้ว pair ใหม่)";
     case 574: return "สร้างการเชื่อมต่อไม่สำเร็จ";

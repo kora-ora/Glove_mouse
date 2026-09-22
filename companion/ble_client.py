@@ -90,7 +90,11 @@ class GloveLink:
         target = await self._resolve_target()
 
         self._lost.clear()
-        async with BleakClient(target, disconnected_callback=lambda _c: self._lost.set()) as client:
+        # use_cached_services=False: Windows เก็บตาราง GATT handle ของ address นี้ไว้ข้ามการต่อ
+        # ถ้าฝั่งบอร์ด reflash แล้ว service/characteristic ขยับ handle เดิม cache จะไม่ตรงของจริง
+        # ทำให้ start_notify พังแบบ "Unreachable" หรือต่อไม่ติดเลย ต้องบังคับ discover ใหม่ทุกครั้ง
+        async with BleakClient(target, disconnected_callback=lambda _c: self._lost.set(),
+                               winrt=dict(use_cached_services=False)) as client:
             self._client = client
             await client.start_notify(p.TX_UUID, self._on_tx)
             await client.start_notify(p.STATUS_UUID, self._on_status)
