@@ -23,8 +23,10 @@ void HidMouseService::begin(const char *deviceName, void (*beforeStart)(NimBLESe
   NimBLEDevice::init(deviceName);
   NimBLEDevice::setPower(Config::BLE_TX_POWER_DBM);  // กำลังส่งสูงขึ้น ลดการหลุดจากสัญญาณอ่อน
   Serial.printf("📡 [BLE] Address: %s\n", NimBLEDevice::getAddress().toString().c_str());
-  // Bonding + Secure Connections แบบ Just Works (เก็บ bond ลง NVS อัตโนมัติ)
-  NimBLEDevice::setSecurityAuth(true, false, true);
+  // Bonding แบบ Just Works, legacy pairing (ไม่ใช้ LE Secure Connections)
+  // เคยเปิด SC (true ตัวท้าย) แล้วบาง Windows host หลุดกลาง pairing ซ้ำๆ ทุกครั้ง (ก่อนถึง onAuthenticationComplete)
+  // legacy pairing เข้ากันได้กว้างกว่า เมาส์ไม่มีข้อมูลอ่อนไหวจึงไม่จำเป็นต้องใช้ SC
+  NimBLEDevice::setSecurityAuth(true, false, false);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
   _server = NimBLEDevice::createServer();
