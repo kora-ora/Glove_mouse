@@ -9,8 +9,11 @@ Ctrl+C บนเครื่องนี้ -> ส่งเข้า ESP32 -> �
 import argparse
 import asyncio
 import logging
+import queue
 import sys
 import threading
+import tkinter as tk
+from tkinter import scrolledtext
 
 import pystray
 from PIL import Image, ImageDraw
@@ -45,6 +48,18 @@ def make_image(color):
     return image
 
 
+class QueueLogHandler(logging.Handler):
+    """ส่ง log record เข้า queue แทนการเขียน Text widget ตรงๆ (log มาจากเธรด asyncio/BLE
+    แต่ Tkinter widget แก้ได้จาก main thread เท่านั้น) ฝั่งหน้าต่างดึงไปแสดงเองผ่าน root.after()"""
+
+    def __init__(self):
+        super().__init__()
+        self.queue = queue.Queue()
+
+    def emit(self, record):
+        self.queue.put(self.format(record))
+
+
 class App:
     def __init__(self, address, name, thingspeak_key=None):
         self.state = "disconnected"
@@ -63,10 +78,58 @@ class App:
             "Glove Clipboard",
             menu=pystray.Menu(
                 pystray.MenuItem(lambda _item: self._status_text(), None, enabled=False),
+                pystray.MenuItem("เปิดหน้าต่าง", self._show_window, default=True),
                 pystray.MenuItem("หยุด sync ชั่วคราว", self._toggle_pause, checked=lambda _item: self.paused),
                 pystray.MenuItem("ออก", self._quit),
             ),
         )
+
+        self._log_handler = QueueLogHandler()
+        self._log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S"))
+        logging.getLogger("glove").addHandler(self._log_handler)
+        self._build_window()
+
+    # ---------- หน้าต่างหลัก (tray ยังทำงานคู่กันตามเดิม ปิดหน้าต่างแค่ซ่อนไม่เลิกโปรแกรม) ----------
+    def _build_window(self):
+        self.root = tk.Tk()
+        self.root.title("Glove Clipboard")
+        self.root.geometry("420x320")
+        self.root.protocol("WM_DELETE_WINDOW", self._hide_window)
+
+        self.status_var = tk.StringVar(value=self._status_text())
+        tk.Label(self.root, textvariable=self.status_var, font=("", 11, "bold")).pack(anchor="w", padx=10, pady=(10, 4))
+
+        self.pause_var = tk.BooleanVar(value=self.paused)
+        tk.Checkbutton(self.root, text="หยุด sync ชั่วคราว", variable=self.pause_var,
+                       command=self._toggle_pause_from_window).pack(anchor="w", padx=10)
+
+        self.log_text = scrolledtext.ScrolledText(self.root, height=14, state="disabled", wrap="word")
+        self.log_text.pack(fill="both", expand=True, padx=10, pady=10)
+
+        tk.Button(self.root, text="ออก", command=self._quit).pack(anchor="e", padx=10, pady=(0, 10))
+
+        self.root.after(200, self._drain_log)
+
+    def _drain_log(self):
+        while True:
+            try:
+                line = self._log_handler.queue.get_nowait()
+            except queue.Empty:
+                break
+            self.log_text.configure(state="normal")
+            self.log_text.insert("end", line + "\n")
+            self.log_text.see("end")
+            self.log_text.configure(state="disabled")
+        self.root.after(200, self._drain_log)
+
+    def _show_window(self, *_args):
+        self.root.after(0, lambda: (self.root.deiconify(), self.root.lift()))
+
+    def _hide_window(self):
+        self.root.withdraw()
+
+    def _toggle_pause_from_window(self):
+        self._toggle_pause(None, None)
 
     # ---------- UI ----------
     def _status_text(self):
@@ -78,6 +141,12 @@ class App:
         self.icon.icon = make_image(color)
         self.icon.title = "Glove Clipboard: " + self._status_text()
         self.icon.update_menu()
+        if hasattr(self, "root"):
+            self.root.after(0, self._refresh_window)
+
+    def _refresh_window(self):
+        self.status_var.set(self._status_text())
+        self.pause_var.set(self.paused)
 
     def _notify(self, message):
         try:
@@ -89,10 +158,11 @@ class App:
         self.paused = not self.paused
         self._refresh_icon()
 
-    def _quit(self, _icon, _item):
+    def _quit(self, *_args):
         self.stopping = True
         self.loop.call_soon_threadsafe(self.link.stop)
         self.icon.stop()
+        self.root.after(0, self.root.destroy)
 
     # ---------- callbacks จาก GloveLink (รันใน asyncio thread) ----------
     def _on_state(self, state):
@@ -148,7 +218,8 @@ class App:
 
     def run(self):
         threading.Thread(target=self._run_loop, daemon=True).start()
-        self.icon.run()  # บล็อกที่ main thread จนกว่าจะเลือก "ออก"
+        threading.Thread(target=self.icon.run, daemon=True).start()  # tray ทำงานคู่ขนานไปกับหน้าต่าง
+        self.root.mainloop()  # หน้าต่างหลักครองเมนไทรด์ (Tkinter ต้องรันบน main thread)
 
 
 def main():
@@ -157,7 +228,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--address", help="BLE address ของถุงมือ (ถ้าไม่ใส่ จะหาจากรายการที่ pair ใน Windows เอง, Linux ต้องระบุเอง)")
     parser.add_argument("--name", default="Glove Air Mouse", help="ชื่ออุปกรณ์ (ใช้ตอนสแกน)")
-    parser.add_argument("--thingspeak-key", help="Write API Key ของ ThingSpeak channel (ไม่ใส่ = ไม่ส่งขึ้น cloud)")
+    parser.add_argument("--thingspeak-key", default="KFEW4NNX2XD13JI1",
+                        help="Write API Key ของ ThingSpeak channel (ค่าเริ่มต้นคือ key ของโปรเจกต์นี้)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     App(args.address, args.name, args.thingspeak_key).run()

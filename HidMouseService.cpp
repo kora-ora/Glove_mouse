@@ -246,7 +246,9 @@ void HidMouseService::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) 
   _handle[slot] = connInfo.getConnHandle();
   if (!otherConnected) _active = slot;
   Serial.printf("✅ [BLE] Host %c ต่อแล้ว (%s)\n", 'A' + slot, addr.toString().c_str());
-  restartAdvertising();
+  // ห้าม restartAdvertising() ตรงนี้: วิทยุตัวเดียวต้องแบ่งเวลาระหว่าง advertise ใหม่กับ
+  // pairing/encryption ของลิงก์ที่เพิ่งต่อ ถ้าแย่งกันตอนนั้นทำให้หลุดเร็ว (reason 531 ภายในไม่กี่ ms)
+  // service() เช็คแล้วเริ่ม advertise ให้เองภายใน Config::BLE_ADV_CHECK_MS อยู่แล้ว
 }
 
 void HidMouseService::onAuthenticationComplete(NimBLEConnInfo &connInfo) {
