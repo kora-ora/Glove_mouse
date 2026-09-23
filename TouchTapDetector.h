@@ -27,7 +27,7 @@ private:
   static TouchTapDetector *s_instance;
 
   uint8_t  _pin = 0;
-  bool     _touched = false;    // สถานะหลัง debounce
+  volatile bool _touched = false;    // สถานะหลัง debounce (เข้าถึงข้าม Core 0 และ Core 1)
   bool     _candidate = false;  // สถานะดิบล่าสุด
   uint8_t  _debounce = 0;
   uint8_t  _taps = 0;

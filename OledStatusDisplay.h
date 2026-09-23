@@ -24,6 +24,8 @@ private:
   const Ds3231Rtc *_rtc = nullptr;
   uint8_t _address = Config::OLED_I2C_ADDR;
   uint32_t _lastRefreshAt = 0;
+  bool _lastConnected = false;
+  int  _lastSlot = -1;
 };
 
 #endif // OLED_STATUS_DISPLAY_H

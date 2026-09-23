@@ -49,8 +49,23 @@ void OledStatusDisplay::clear() {
 }
 
 void OledStatusDisplay::update(bool connected, int activeSlot, const MousePacket &packet) {
-  if (!_available || millis() - _lastRefreshAt < Config::OLED_REFRESH_MS) return;
-  _lastRefreshAt = millis();
+  if (!_available) return;
+
+  const uint32_t now = millis();
+  const bool stateChanged = (connected != _lastConnected || activeSlot != _lastSlot);
+  const bool isMoving = (packet.dx != 0 || packet.dy != 0);
+
+  // ขณะที่เมาส์กำลังเคลื่อนไหว (isMoving): งดส่ง Framebuffer 1KB ผ่าน I2C (~25ms) ชั่วคราว
+  // เพื่อไม่ให้ I2C ไปบล็อกลูป 100Hz ของ MPU6050 จนเคอร์เซอร์สะดุด/กระตุก (Micro-stuttering)
+  // จอจะกลับมาอัปเดตเมื่อมือหยุดนิ่ง (dx=0, dy=0), มีสถานะ BLE เปลี่ยน หรือครบ 1 วินาที
+  if (isMoving && !stateChanged && (now - _lastRefreshAt < 1000)) {
+    return;
+  }
+
+  if (!stateChanged && (now - _lastRefreshAt < Config::OLED_REFRESH_MS)) return;
+  _lastRefreshAt = now;
+  _lastConnected = connected;
+  _lastSlot = activeSlot;
 
   _display.clearDisplay();
   _display.setTextSize(1);

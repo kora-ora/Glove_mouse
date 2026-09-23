@@ -105,9 +105,14 @@ bool MPU6050Driver::readGyro(float &gx, float &gy, float &gz) const {
   if (Wire.endTransmission(false) != 0) return false;
   if (Wire.requestFrom(activeAddress, (uint8_t)6) != 6) return false;
 
-  int16_t rawX = (Wire.read() << 8) | Wire.read();
-  int16_t rawY = (Wire.read() << 8) | Wire.read();
-  int16_t rawZ = (Wire.read() << 8) | Wire.read();
+  // อ่าน High Byte และ Low Byte แยกบรรทัดกันให้แน่นอน ป้องกัน C++ Unspecified Order of Evaluation
+  uint8_t hiX = Wire.read(); uint8_t loX = Wire.read();
+  uint8_t hiY = Wire.read(); uint8_t loY = Wire.read();
+  uint8_t hiZ = Wire.read(); uint8_t loZ = Wire.read();
+
+  int16_t rawX = static_cast<int16_t>((hiX << 8) | loX);
+  int16_t rawY = static_cast<int16_t>((hiY << 8) | loY);
+  int16_t rawZ = static_cast<int16_t>((hiZ << 8) | loZ);
 
   // แปลงค่า LSB เป็น rad/s (สเกล +-500 deg/s คือ 65.5 LSB/deg/s)
   constexpr float scaleToRad = (1.0f / 65.5f) * DEG_TO_RAD;

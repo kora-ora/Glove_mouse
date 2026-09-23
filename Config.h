@@ -84,10 +84,12 @@ namespace Config {
   // ==========================================
   constexpr uint8_t  MAX_HOSTS             = 2;
   // ความเสถียรของ BLE
-  // Connection interval (หน่วย 1.25 ms): 12-24 = 15-30 ms เหมาะกับการต่อ 2 เครื่องพร้อมกัน (7.5 ms ทำให้ 2 ลิงก์แย่งเวลาวิทยุกัน)
+  // Connection interval (หน่วย 1.25 ms): 16-32 = 20-40 ms
+  // ก่อนหน้าตั้ง 12-24 (15-30ms) แต่ถี่เกินไป: ตอนลิงก์หนึ่งต่ออยู่แล้วอีกลิงก์เข้ามา pairing พร้อมกัน
+  // วิทยุตัวเดียวแทบไม่มีช่องว่างให้ handshake ของลิงก์ใหม่ หลุดวนซ้ำก่อนต่อติด ขยายช่วงให้มีที่หายใจมากขึ้น
   // ขอปรับก็ต่อเมื่อเครื่องที่ต่อเลือก interval ช้ากว่า MAX เท่านั้น และขอหลังต่อเสร็จ BLE_PARAM_CHECK_DELAY_MS
-  constexpr uint16_t BLE_CONN_INTERVAL_MIN = 12;
-  constexpr uint16_t BLE_CONN_INTERVAL_MAX = 24;
+  constexpr uint16_t BLE_CONN_INTERVAL_MIN = 16;
+  constexpr uint16_t BLE_CONN_INTERVAL_MAX = 32;
   constexpr uint16_t BLE_CONN_TIMEOUT      = 400;   // supervision timeout หน่วย 10 ms = 4 วินาที (ทนสัญญาณหายชั่วคราว)
   constexpr uint32_t BLE_PARAM_CHECK_DELAY_MS = 2000;
   constexpr uint32_t BLE_ADV_CHECK_MS      = 1000;  // ตรวจว่ายัง advertise อยู่ตราบใดที่มีช่องว่าง
