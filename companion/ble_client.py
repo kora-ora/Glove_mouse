@@ -1,7 +1,9 @@
 """BLE client สำหรับเชื่อมต่อ clipboard service ของถุงมือ"""
 import asyncio
 import logging
+import os
 import random
+import sys
 import time
 
 from bleak import BleakClient, BleakScanner
@@ -62,6 +64,23 @@ class GloveLink:
             delay = RECONNECT_MIN_DELAY if lived >= STABLE_SECONDS else min(delay * 2, RECONNECT_MAX_DELAY)
 
     def _known_device(self, address):
+        if sys.platform.startswith("linux"):
+            adapter = "hci0"
+            try:
+                adapters = [d for d in os.listdir("/sys/class/bluetooth") if d.startswith("hci")]
+                if adapters:
+                    adapter = sorted(adapters)[0]
+            except Exception:
+                pass
+            mac_clean = address.replace(":", "_").upper()
+            details = {
+                "path": f"/org/bluez/{adapter}/dev_{mac_clean}",
+                "props": {
+                    "Adapter": f"/org/bluez/{adapter}",
+                    "Alias": self.name,
+                },
+            }
+            return BLEDevice(address, self.name, details)
         return BLEDevice(address, self.name, None)
 
     async def _resolve_target(self):
@@ -80,8 +99,11 @@ class GloveLink:
         target = await self._resolve_target()
 
         self._lost.clear()
-        async with BleakClient(target, disconnected_callback=lambda _c: self._lost.set(),
-                               winrt=dict(use_cached_services=False)) as client:
+        client_kwargs = {"disconnected_callback": lambda _c: self._lost.set()}
+        if sys.platform == "win32":
+            client_kwargs["winrt"] = dict(use_cached_services=False)
+
+        async with BleakClient(target, **client_kwargs) as client:
             self._client = client
             await client.start_notify(p.TX_UUID, self._on_tx)
             await client.start_notify(p.STATUS_UUID, self._on_status)
