@@ -1,37 +1,36 @@
 #include "HidMouseService.h"
 #include <NimBLEDevice.h>
 #include <NimBLEHIDDevice.h>
+
 // Report Map: เมาส์ 3 ปุ่ม + X/Y แบบ relative 8 บิต (Report ID 1)
-// payload 3 ไบต์: [buttons, dx, dy]
 static const uint8_t kReportMap[] = {
-  0x05, 0x01, 0x09, 0x02, 0xA1, 0x01,  // Usage Page (Generic Desktop), Mouse, Collection (Application)
-  0x85, 0x01,                          //   Report ID 1
-  0x09, 0x01, 0xA1, 0x00,              //   Pointer, Collection (Physical)
-  0x05, 0x09, 0x19, 0x01, 0x29, 0x03,  //     Buttons 1-3
-  0x15, 0x00, 0x25, 0x01,              //     0..1
-  0x95, 0x03, 0x75, 0x01, 0x81, 0x02,  //     3 bits input
-  0x95, 0x01, 0x75, 0x05, 0x81, 0x03,  //     5 bits padding
-  0x05, 0x01, 0x09, 0x30, 0x09, 0x31,  //     X, Y
-  0x15, 0x81, 0x25, 0x7F,              //     -127..127
-  0x75, 0x08, 0x95, 0x02, 0x81, 0x06,  //     2 x 8 bits relative
-  0xC0, 0xC0                           //   End Collection x2
+  0x05, 0x01, 0x09, 0x02, 0xA1, 0x01,
+  0x85, 0x01,
+  0x09, 0x01, 0xA1, 0x00,
+  0x05, 0x09, 0x19, 0x01, 0x29, 0x03,
+  0x15, 0x00, 0x25, 0x01,
+  0x95, 0x03, 0x75, 0x01, 0x81, 0x02,
+  0x95, 0x01, 0x75, 0x05, 0x81, 0x03,
+  0x05, 0x01, 0x09, 0x30, 0x09, 0x31,
+  0x15, 0x81, 0x25, 0x7F,
+  0x75, 0x08, 0x95, 0x02, 0x81, 0x06,
+  0xC0, 0xC0
 };
 
 void HidMouseService::begin(const char *deviceName, void (*beforeStart)(NimBLEServer *)) {
   for (uint8_t i = 0; i < Config::MAX_HOSTS; i++) _handle[i] = NO_CONN;
 
   NimBLEDevice::init(deviceName);
-  NimBLEDevice::setPower(Config::BLE_TX_POWER_DBM);  // กำลังส่งสูงขึ้น ลดการหลุดจากสัญญาณอ่อน
+  NimBLEDevice::setPower(Config::BLE_TX_POWER_DBM);
   Serial.printf("📡 [BLE] Address: %s\n", NimBLEDevice::getAddress().toString().c_str());
-  // Bonding แบบ Just Works, legacy pairing (ไม่ใช้ LE Secure Connections)
-  // เคยเปิด SC (true ตัวท้าย) แล้วบาง Windows host หลุดกลาง pairing ซ้ำๆ ทุกครั้ง (ก่อนถึง onAuthenticationComplete)
-  // legacy pairing เข้ากันได้กว้างกว่า เมาส์ไม่มีข้อมูลอ่อนไหวจึงไม่จำเป็นต้องใช้ SC
+
+  // Just Works legacy pairing
   NimBLEDevice::setSecurityAuth(true, false, false);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
   _server = NimBLEDevice::createServer();
   _server->setCallbacks(this, false);
-  _server->advertiseOnDisconnect(false);  // restart เอง เพื่อคุมเงื่อนไข slot ว่าง
+  _server->advertiseOnDisconnect(false);
 
   NimBLEHIDDevice hid(_server);
   _input = hid.getInputReport(1);
@@ -45,10 +44,8 @@ void HidMouseService::begin(const char *deviceName, void (*beforeStart)(NimBLESe
   adv->setAppearance(Config::HID_APPEARANCE_MOUSE);
   adv->addServiceUUID(hid.getHidService()->getUUID());
   adv->setName(deviceName);
-  // advertise ห่างขึ้น ไม่แย่งเวลาวิทยุกับลิงก์ที่ต่ออยู่ (ยังพอให้ต่อกลับได้ภายในไม่ถึงวินาที)
   adv->setMinInterval(Config::BLE_ADV_INTERVAL_MIN);
   adv->setMaxInterval(Config::BLE_ADV_INTERVAL_MAX);
-  adv->setAdvertisingCompleteCallback([](NimBLEAdvertising *) { Serial.println("📡 [BLE] stack แจ้งว่า advertise จบ"); });
 
   if (beforeStart) beforeStart(_server);
 
@@ -78,7 +75,7 @@ bool HidMouseService::sendReport(uint16_t connHandle, uint8_t buttons, int8_t dx
 void HidMouseService::pause() {
   if (_paused) return;
   int slot = pickConnectedSlot(_active);
-  if (slot >= 0) sendReport(_handle[slot], 0, 0, 0);  // ปล่อยปุ่มที่ค้างก่อนหยุด
+  if (slot >= 0) sendReport(_handle[slot], 0, 0, 0);
   _lastButtons = 0;
   _paused = true;
   Serial.println("⏸️ [STATE] หยุดทำงาน");
@@ -93,7 +90,6 @@ void HidMouseService::resume() {
 bool HidMouseService::send(const MousePacket &packet) {
   if (_paused) return false;
 
-  // ถ้า host ที่ active หลุด ให้ย้ายไปเครื่องที่ยังต่ออยู่
   int slot = pickConnectedSlot(_active);
   if (slot < 0) return false;
   if (slot != _active) {
@@ -109,7 +105,6 @@ bool HidMouseService::switchHost() {
   int current = pickConnectedSlot(_active);
   if (current < 0) return false;
 
-  // หา host อื่นที่ต่ออยู่ ถ้าไม่มีก็ไม่ต้องสลับ
   int next = -1;
   for (int i = 1; i < Config::MAX_HOSTS; i++) {
     int candidate = (current + i) % Config::MAX_HOSTS;
@@ -120,11 +115,10 @@ bool HidMouseService::switchHost() {
     return false;
   }
 
-  const uint8_t buttonsAtSwitch = _lastButtons;  // ไว้พิมพ์ debug เทียบว่ามีปุ่มค้างตอนสลับจริงไหม
-  sendReport(_handle[current], 0, 0, 0);  // ปล่อยปุ่มที่ค้างบนเครื่องเดิมก่อนสลับ
-  _lastButtons = 0;  // เครื่องใหม่ยังไม่เคยรู้จักปุ่มค้าง ต้องเริ่มที่ 0 เสมอ (ไม่งั้น keep-alive อาจส่งปุ่มค้างเดิมไปกดเครื่องใหม่ทันที)
+  sendReport(_handle[current], 0, 0, 0);
+  _lastButtons = 0;
   _active = next;
-  Serial.printf("🔀 [BLE] Active: %c (ปุ่มขณะสลับ=0x%02X)\n", 'A' + next, buttonsAtSwitch);
+  Serial.printf("🔀 [BLE] Active: %c\n", 'A' + next);
   return true;
 }
 
@@ -141,15 +135,14 @@ int HidMouseService::slotOfHandle(uint16_t connHandle) const {
   return -1;
 }
 
-// อธิบายรหัส reason ของ NimBLE (0x200 + รหัส HCI) ให้อ่านง่ายใน Serial Monitor
 static const char *describeReason(int reason) {
   switch (reason) {
-    case 520: return "สัญญาณหาย/ไม่ตอบ (supervision timeout)";
-    case 531: return "เครื่องที่ต่อ (host) เป็นฝ่ายตัด";
-    case 533: return "อีกฝั่ง (host) ตัดเพราะทรัพยากรฝั่งนั้นไม่พอ";
-    case 534: return "ESP32 เป็นฝ่ายตัด";
-    case 573: return "MIC failure: key เข้ารหัสไม่ตรงกัน (ลบอุปกรณ์แล้ว pair ใหม่)";
-    case 574: return "สร้างการเชื่อมต่อไม่สำเร็จ";
+    case 520: return "supervision timeout";
+    case 531: return "host disconnected";
+    case 533: return "host resource exhausted";
+    case 534: return "local host terminated";
+    case 573: return "MIC failure (re-pair required)";
+    case 574: return "connection failed to establish";
     default:  return "";
   }
 }
@@ -157,35 +150,25 @@ static const char *describeReason(int reason) {
 void HidMouseService::service() {
   const uint32_t now = millis();
 
-  // Keep-alive: ลิงก์ที่ไม่มี report นานๆ อาจถูก Windows ตัด ส่ง report ว่าง (ไม่ขยับ) ให้ทุกเครื่องที่ต่ออยู่เป็นระยะ
-  // เครื่อง active ส่งสถานะปุ่มปัจจุบันไปด้วย (ไม่ปล่อยปุ่มที่กดค้างอยู่) เครื่องอื่นส่งปุ่มว่าง
+  // HID Keep-alive
   if (Config::HID_KEEPALIVE_MS > 0) {
     for (int i = 0; i < Config::MAX_HOSTS; i++) {
       if (_handle[i] == NO_CONN || now - _lastTxMs[i] < Config::HID_KEEPALIVE_MS) continue;
       const uint8_t buttons = (i == _active && !_paused) ? _lastButtons : 0;
-      sendReport(_handle[i], buttons, 0, 0);  // sendReport อัปเดต _lastTxMs เอง กันส่งรัวถ้าเครื่องยังไม่ subscribe
+      sendReport(_handle[i], buttons, 0, 0);
     }
   }
 
-  // ตราบใดที่ยังมีช่องว่าง ต้อง advertise อยู่เสมอ: การเริ่ม advertise ใน callback อาจล้มเหลวเงียบๆ
-  // ทำให้บอร์ด "หายไป" จากการค้นหา ตัวนี้ตรวจซ้ำและเริ่มใหม่ให้
+  // ตรวจสอบและ restart advertise หากยังมีช่องว่าง
   if (now - _lastAdvCheckMs >= Config::BLE_ADV_CHECK_MS) {
     _lastAdvCheckMs = now;
     NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
     if (_server->getConnectedCount() < Config::MAX_HOSTS && !adv->isAdvertising()) {
-      const bool started = adv->start();
-      const bool active = adv->isAdvertising();
-      // พิมพ์ไม่เกินทุก 10 วินาที กัน Serial ถูกท่วม (start=ใช่ แต่ active=ไม่ = ตัวควบคุมหยุด advertise ทันที)
-      if (now - _lastAdvLogMs >= 10000) {
-        _lastAdvLogMs = now;
-        Serial.printf("📡 [BLE] advertise หยุดอยู่ -> start=%s ตอนนี้ active=%s ต่ออยู่ %u เครื่อง\n",
-                      started ? "ใช่" : "ไม่", active ? "ใช่" : "ไม่", _server->getConnectedCount());
-      }
+      adv->start();
     }
   }
 
-  // หลังต่อเสร็จสักพัก ตรวจ connection interval จริงที่เครื่องนั้นเลือก
-  // ขอปรับเฉพาะเมื่อช้าเกินไป (การขอทันทีตอนต่อ ชนกับ procedure ของ host ทำให้ลิงก์หลุดได้)
+  // ปรับ connection interval ให้อยู่ในช่วงที่เหมาะสม และเปิด Slave Latency
   for (int i = 0; i < Config::MAX_HOSTS; i++) {
     if (_handle[i] == NO_CONN || _paramsChecked[i]) continue;
     if (now - _connectedAtMs[i] < Config::BLE_PARAM_CHECK_DELAY_MS) continue;
@@ -193,31 +176,26 @@ void HidMouseService::service() {
 
     NimBLEConnInfo info = _server->getPeerInfoByHandle(_handle[i]);
     const uint16_t interval = info.getConnInterval();
-    if (interval == 0) continue;  // หาไม่เจอ (เพิ่งหลุด)
+    if (interval == 0) continue;
+
     Serial.printf("📶 [BLE] Host %c interval=%.1f ms latency=%u timeout=%u ms\n", 'A' + i,
                   interval * 1.25f, info.getConnLatency(), info.getConnTimeout() * 10);
-    if (interval > Config::BLE_CONN_INTERVAL_MAX) {
-      _server->updateConnParams(_handle[i], Config::BLE_CONN_INTERVAL_MIN, Config::BLE_CONN_INTERVAL_MAX, 0,
-                                Config::BLE_CONN_TIMEOUT);
+    if (interval < Config::BLE_CONN_INTERVAL_MIN || interval > Config::BLE_CONN_INTERVAL_MAX) {
+      _server->updateConnParams(_handle[i], Config::BLE_CONN_INTERVAL_MIN, Config::BLE_CONN_INTERVAL_MAX,
+                                Config::BLE_CONN_LATENCY, Config::BLE_CONN_TIMEOUT);
     }
   }
 }
 
 void HidMouseService::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) {
   NimBLEAddress addr = connInfo.getIdAddress();
-  // ตอน onConnect ยิง identity address อาจยัง resolve ไม่เสร็จ (bonding เกิดทีหลัง ดู onAuthenticationComplete)
-  // แล้วได้ address ว่าง 00:00:00:00:00:00 ชั่วคราว ถ้าเอาไปเทียบ/จับคู่ slot จะเข้าใจผิดว่าเป็นเครื่องเดิมกับ
-  // เครื่องอื่นที่เคยเจอสถานการณ์เดียวกัน (ทั้งคู่ address ว่างเหมือนกัน) แล้วไปตัดลิงก์ของเครื่องนั้นทิ้งผิดๆ
-  // จึงห้ามใช้ address ว่างจับคู่ slot เด็ดขาด ให้ตกไปใช้ slot ว่างแรกแทน (ไม่ผูกกับเครื่องเดิม)
   const bool addrKnown = !addr.isNull();
 
-  // เครื่องเดิมได้ slot เดิม, ไม่งั้นใช้ slot ว่างแรก
   int slot = -1;
   if (addrKnown) {
     for (int i = 0; i < Config::MAX_HOSTS; i++) {
       if (_hasAddr[i] && _addr[i] == addr && _handle[i] == NO_CONN) { slot = i; break; }
     }
-    // เครื่องเดิมต่อกลับมาทั้งที่ลิงก์เก่ายังค้างอยู่ (ยังไม่ทันหมดเวลา timeout): ตัดลิงก์เก่าแล้วใช้ slot เดิม
     for (int i = 0; slot < 0 && i < Config::MAX_HOSTS; i++) {
       if (_hasAddr[i] && _addr[i] == addr && _handle[i] != NO_CONN) {
         server->disconnect(_handle[i]);
@@ -230,18 +208,15 @@ void HidMouseService::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) 
   }
 
   if (slot < 0) {
-    // เกินจำนวนเครื่องที่รองรับ: ตัดทิ้ง ไม่ปล่อยให้กินช่องเงียบๆ
     Serial.printf("⚠️ [BLE] ปฏิเสธการเชื่อมต่อเกิน %u เครื่อง (%s)\n", Config::MAX_HOSTS, addr.toString().c_str());
     server->disconnect(connInfo);
     return;
   }
 
-  // เก็บ address ไว้จับคู่ครั้งหน้า เฉพาะตอนที่ resolve ได้จริงเท่านั้น (ตอน addrKnown=false ปล่อยของเดิมไว้ ถ้ามี)
   if (addrKnown) {
     _addr[slot] = addr;
     _hasAddr[slot] = true;
   }
-  // เครื่องแรกที่ต่อเข้ามาเป็น active ทันที (ไม่พึ่ง getConnectedCount ที่อาจรวมหรือไม่รวมเครื่องนี้)
   bool otherConnected = pickConnectedSlot(-1) >= 0;
   _connectedAtMs[slot] = millis();
   _lastTxMs[slot] = millis();
@@ -249,9 +224,6 @@ void HidMouseService::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) 
   _handle[slot] = connInfo.getConnHandle();
   if (!otherConnected) _active = slot;
   Serial.printf("✅ [BLE] Host %c ต่อแล้ว (%s)\n", 'A' + slot, addr.toString().c_str());
-  // ห้าม restartAdvertising() ตรงนี้: วิทยุตัวเดียวต้องแบ่งเวลาระหว่าง advertise ใหม่กับ
-  // pairing/encryption ของลิงก์ที่เพิ่งต่อ ถ้าแย่งกันตอนนั้นทำให้หลุดเร็ว (reason 531 ภายในไม่กี่ ms)
-  // service() เช็คแล้วเริ่ม advertise ให้เองภายใน Config::BLE_ADV_CHECK_MS อยู่แล้ว
 }
 
 void HidMouseService::onAuthenticationComplete(NimBLEConnInfo &connInfo) {
@@ -264,15 +236,13 @@ void HidMouseService::onDisconnect(NimBLEServer *server, NimBLEConnInfo &connInf
   for (int i = 0; i < Config::MAX_HOSTS; i++) {
     if (_handle[i] == connInfo.getConnHandle()) {
       _handle[i] = NO_CONN;
-      Serial.printf("❌ [BLE] Host %c หลุด หลังต่อ %lu ms (reason %d: %s)\n", 'A' + i,
-                    (unsigned long)(millis() - _connectedAtMs[i]), reason, describeReason(reason));
+      Serial.printf("❌ [BLE] Host %c หลุด (reason %d: %s)\n", 'A' + i, reason, describeReason(reason));
 
-      // เครื่องนั้นตัดทันทีหลังต่อ (ไม่ทันเข้ารหัส/ตรวจ params) ซ้ำๆ = เกือบแน่ว่า key หรือแคช GATT ไม่ตรงกับบอร์ด
-      static uint32_t lastHintMs = 0;
-      const uint32_t now = millis();
-      if (reason == 531 && now - _connectedAtMs[i] < 5000 && now - lastHintMs > 10000) {
-        lastHintMs = now;
-        Serial.println("   ⚠️ ตัดทันทีหลังต่อ: ลบ 'Glove Air Mouse' ในเครื่องนั้นแล้ว pair ใหม่ (พิมพ์ b ใน Serial Monitor เพื่อล้าง bond ในบอร์ดด้วย)");
+      // ถ้าเครื่อง active หลุด ให้สลับไปเครื่องที่ยังต่ออยู่ทันที
+      if (_active == i) {
+        int nextSlot = pickConnectedSlot(-1);
+        _active = (nextSlot >= 0) ? nextSlot : 0;
+        Serial.printf("🔀 [BLE] Active host หลุด -> ย้ายไป Active: %c\n", 'A' + _active);
       }
     }
   }

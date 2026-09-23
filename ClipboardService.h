@@ -5,17 +5,11 @@
 #include <NimBLEDevice.h>
 #include "ClipboardStore.h"
 
-// Custom GATT service สำหรับฝาก/ขอข้อความ (clipboard) ผ่าน ESP32
-// โปรโตคอล: [type u8][msgId u8][seq u16 LE][payload...]  (รายละเอียดใน README)
+// Custom GATT Service สำหรับ Clipboard sync ผ่าน ESP32
 class ClipboardService : public NimBLECharacteristicCallbacks {
 public:
-  // ต้องเรียกก่อน NimBLEServer::start()
   void begin(NimBLEServer *server);
-
-  // เรียกเป็นระยะจาก Task เดียว (TaskBleMouse): ล้างข้อความหมดอายุ + ส่งข้อความขากลับทีละชิ้น
   void service();
-
-  // NimBLECharacteristicCallbacks (รันใน NimBLE host task)
   void onWrite(NimBLECharacteristic *chr, NimBLEConnInfo &connInfo) override;
 
 private:
@@ -36,6 +30,7 @@ private:
     uint32_t crc = 0;
     uint16_t offset = 0;
     uint16_t seq = 0;
+    uint32_t startMs = 0;
   };
 
   void sendControl(uint16_t connHandle, PacketType type, uint8_t msgId, ClipErr err = CLIP_OK);

@@ -17,16 +17,13 @@ void ClipboardService::begin(NimBLEServer *server) {
 
   NimBLEService *svc = server->createService(Config::CLIP_SERVICE_UUID);
 
-  // เครื่อง -> ESP32
   NimBLECharacteristic *rx = svc->createCharacteristic(
       Config::CLIP_RX_UUID, NIMBLE_PROPERTY::WRITE);
   rx->setCallbacks(this);
 
-  // ESP32 -> เครื่อง: ACK/NACK และข้อความขากลับ
   _tx = svc->createCharacteristic(
       Config::CLIP_TX_UUID, NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::READ);
 
-  // สถานะ: [state u8][len u16 LE]
   _status = svc->createCharacteristic(
       Config::CLIP_STATUS_UUID,
       NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
@@ -60,12 +57,13 @@ void ClipboardService::startGet(uint16_t connHandle, uint16_t mtu, uint8_t msgId
   xSemaphoreTake(_txMutex, portMAX_DELAY);
   if (_send.active) {
     xSemaphoreGive(_txMutex);
-    sendControl(connHandle, PKT_NACK, msgId, CLIP_BAD_STATE);  // กำลังส่งอยู่
+    sendControl(connHandle, PKT_NACK, msgId, CLIP_BAD_STATE);
     return;
   }
   int chunk = (int)mtu - 3 - (int)HEADER_LEN;
   _send = Tx();
   _send.active = true;
+  _send.startMs = millis();
   _send.connHandle = connHandle;
   _send.msgId = msgId;
   _send.chunk = constrain(chunk, (int)Config::CLIP_MIN_CHUNK, (int)Config::CLIP_MAX_CHUNK);
@@ -133,7 +131,14 @@ void ClipboardService::service() {
     return;
   }
 
-  // ผู้ขอหลุดไปแล้ว: เลิกส่ง
+  // Timeout ป้องกัน transfer ค้างเกิน 5 วินาที
+  if (millis() - _send.startMs > 5000) {
+    _send.active = false;
+    xSemaphoreGive(_txMutex);
+    return;
+  }
+
+  // ยกเลิกหากผู้ขอหลุดไปแล้ว
   std::vector<uint16_t> peers = _server->getPeerDevices();
   if (std::find(peers.begin(), peers.end(), _send.connHandle) == peers.end()) {
     _send.active = false;
@@ -141,7 +146,6 @@ void ClipboardService::service() {
     return;
   }
 
-  // ส่งหลายชิ้นต่อรอบ (ลูปหลักตื่นทุก ~10 ms) หยุดเมื่อ notify ไม่รับ แล้วลองใหม่รอบหน้า
   for (int i = 0; i < 4 && _send.active; i++) {
     uint8_t pkt[HEADER_LEN + Config::CLIP_MAX_CHUNK];
     size_t len = 0;
@@ -150,11 +154,11 @@ void ClipboardService::service() {
       putHeader(pkt, PKT_START, _send.msgId, 0);
       pkt[4] = _send.total & 0xFF;
       pkt[5] = _send.total >> 8;
-      memcpy(pkt + 6, &_send.crc, 4);  // ESP32 เป็น little-endian
+      memcpy(pkt + 6, &_send.crc, 4);
       len = HEADER_LEN + 6;
     } else if (_send.stage == TX_DATA) {
       size_t got = _store.copyOut(_send.offset, pkt + HEADER_LEN, _send.chunk);
-      if (got == 0) {  // ข้อความถูกล้างระหว่างส่ง
+      if (got == 0) {
         sendControl(_send.connHandle, PKT_NACK, _send.msgId, CLIP_EMPTY);
         _send.active = false;
         break;

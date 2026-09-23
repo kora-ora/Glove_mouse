@@ -30,15 +30,14 @@ void FlexClickManager::calibrate() {
   _indexFinger.filtered = _baselineIndex;
   _middleFinger.filtered = _baselineMiddle;
 
-  // ค่าแกว่งกว้างเกินไประหว่าง calibrate (มือนิ่งอยู่แล้วในขั้นนี้) = ขา ADC ลอย ไม่ได้ต่อเซนเซอร์จริง
-  // ปิดการตรวจจับคลิกของนิ้วนั้นไว้ กันคลิกเองจากสัญญาณรบกวน (ต้องรีเซ็ตบอร์ดหลังต่อเซนเซอร์เพื่อ calibrate ใหม่)
+  // ตรวจจับขาลอย (floating pin) หากค่าแกว่งเกินเกณฑ์
   _indexFinger.connected = (hiIndex - loIndex) <= Config::FLEX_CALIB_MAX_RANGE;
   _middleFinger.connected = (hiMiddle - loMiddle) <= Config::FLEX_CALIB_MAX_RANGE;
 
-  Serial.printf("[FLEX] นิ้วชี้  baseline=%d แกว่ง=%d %s\n", _baselineIndex, hiIndex - loIndex,
-                _indexFinger.connected ? "" : "-> !! ไม่พบเซนเซอร์ (ขาลอย) ปิดคลิกซ้ายไว้");
+  Serial.printf("[FLEX] นิ้วชี้ baseline=%d แกว่ง=%d %s\n", _baselineIndex, hiIndex - loIndex,
+                _indexFinger.connected ? "" : "-> ไม่พบเซนเซอร์ (ปิดคลิกซ้าย)");
   Serial.printf("[FLEX] นิ้วกลาง baseline=%d แกว่ง=%d %s\n", _baselineMiddle, hiMiddle - loMiddle,
-                _middleFinger.connected ? "" : "-> !! ไม่พบเซนเซอร์ (ขาลอย) ปิดคลิกขวาไว้");
+                _middleFinger.connected ? "" : "-> ไม่พบเซนเซอร์ (ปิดคลิกขวา)");
 }
 
 int FlexClickManager::readFiltered(uint8_t pin, FingerState &finger) {
@@ -48,9 +47,8 @@ int FlexClickManager::readFiltered(uint8_t pin, FingerState &finger) {
 }
 
 bool FlexClickManager::updateFinger(FingerState &finger, int rawValue, int baseline) {
-  if (!finger.connected) return false;  // ไม่ได้ต่อเซนเซอร์ (ตรวจตอน calibrate) ไม่ต้องเสี่ยงอ่านสัญญาณรบกวนเป็นคลิก
+  if (!finger.connected) return false;
 
-  // งอนิ้ว -> ค่า ADC ลดลง (ตามวงจร voltage divider ที่ใช้จริง)
   int pressThreshold = baseline - Config::FLEX_PRESS_MARGIN;
   int releaseThreshold = baseline - Config::FLEX_RELEASE_MARGIN;
 

@@ -1,11 +1,4 @@
-"""Glove Clipboard: โปรแกรม tray ที่ sync ข้อความ clipboard ผ่านถุงมือ (รันได้ทั้ง Windows และ Linux)
-
-  python app.py [--address AA:BB:CC:DD:EE:FF] [--name "Glove Air Mouse"] [--thingspeak-key KEY]
-
-Ctrl+C บนเครื่องนี้ -> ส่งเข้า ESP32 -> อีกเครื่องที่รันโปรแกรมนี้ได้รับและใส่เข้า clipboard
-
-บน Linux ต้องมี X11 desktop และติดตั้ง xclip ก่อน: sudo apt install xclip
-"""
+"""Glove Clipboard: Sync clipboard ระหว่างเครื่องผ่านถุงมือ Air Mouse"""
 import argparse
 import asyncio
 import logging

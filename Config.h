@@ -4,136 +4,98 @@
 #include <Arduino.h>
 
 namespace Config {
-  // ==========================================
-  // 1. ฮาร์ดแวร์และการเชื่อมต่อ I2C
-  // ==========================================
+  // 1. ฮาร์ดแวร์และ I2C
   constexpr uint8_t  PIN_SDA            = 21;
   constexpr uint8_t  PIN_SCL            = 22;
-  constexpr uint32_t I2C_CLOCK_SPEED    = 400000;  // 400kHz Fast Mode
-  // ที่อยู่ I2C ของอุปกรณ์ที่ใช้จริง (7-bit): MPU6050 = 0x69 (AD0 ต่อ 3.3V), OLED = 0x3C
-  // RTC DS3231 = 0x68 ตายตัว (0x57 คือ EEPROM บนโมดูล RTC ซึ่งอ่านเวลาไม่ได้)
+  constexpr uint32_t I2C_CLOCK_SPEED    = 400000;
   constexpr uint8_t  MPU_DEFAULT_ADDR   = 0x69;
   constexpr uint8_t  RTC_I2C_ADDR       = 0x68;
-  constexpr uint8_t  INTERRUPT_PIN      = 4;        // ขา INT ของ MPU6050 → GPIO 4
-  // ไลบรารี Arduino ใช้ I2C address แบบ 7-bit: 0x3C/0x3D
-  // บาง datasheet ระบุเป็น 8-bit write address: 0x78/0x7A ตามลำดับ
-  constexpr uint8_t  OLED_I2C_ADDR      = 0x3C;     // 0x78 แบบ 8-bit
-  constexpr uint8_t  OLED_BACKUP_ADDR   = 0x3D;     // 0x7A แบบ 8-bit
+  constexpr uint8_t  INTERRUPT_PIN      = 4;
+  constexpr uint8_t  OLED_I2C_ADDR      = 0x3C;
+  constexpr uint8_t  OLED_BACKUP_ADDR   = 0x3D;
   constexpr uint8_t  OLED_WIDTH         = 128;
   constexpr uint8_t  OLED_HEIGHT        = 64;
-  constexpr uint32_t OLED_REFRESH_MS    = 200;      // ลดการเขียน I2C ซ้ำโดยไม่จำเป็น
+  constexpr uint32_t OLED_REFRESH_MS    = 200;
 
-  // Buzzer แบบ Active Buzzer (มีขา I/O, VCC, GND)
+  // Buzzer
   constexpr uint8_t  PIN_BUZZER          = 26;
   constexpr bool     BUZZER_ACTIVE_HIGH  = true;
-  constexpr uint16_t BUZZER_SWITCH_MS    = 100;     // เสียงยืนยันเมื่อสลับ Host สำเร็จ
-  constexpr uint16_t BUZZER_TAP_MS       = 40;      // เสียงสั้นยืนยันว่าแตะทัชติด (แตะ 1 ครั้ง = หยุด/ทำงานต่อ)
+  constexpr uint16_t BUZZER_SWITCH_MS    = 100;
+  constexpr uint16_t BUZZER_TAP_MS       = 40;
 
-  // ==========================================
-  // 2. การปรับแต่งความไวและการเคลื่อนที่ของเมาส์
-  // ==========================================
-  constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 100;  // MPU6050 sample rate (เดิมเป็น 1 kHz เพราะไม่ได้ตั้ง SMPLRT_DIV)
-  constexpr float    SENSITIVITY_X      = 50.0f;  // ความไวแกน X (ซ้าย-ขวา) ตอน 100 Hz (rate x sensitivity = 5000)
-  constexpr float    SENSITIVITY_Y      = 50.0f;  // ความไวแกน Y (ขึ้น-ลง)
-  constexpr float    DEADZONE           = 0.06f;   // ตัดสัญญาณมือสั่น (rad/s)
-  constexpr bool     INVERT_X           = false;   // สลับทิศทางแนวนอน
-  constexpr bool     INVERT_Y           = true;    // สลับทิศทางแนวตั้ง (Pitch)
+  // 2. เมาส์และความไว
+  constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 100;
+  constexpr float    SENSITIVITY_X      = 50.0f;
+  constexpr float    SENSITIVITY_Y      = 50.0f;
+  constexpr float    DEADZONE           = 0.06f;
+  constexpr bool     INVERT_X           = false;
+  constexpr bool     INVERT_Y           = true;
 
-  // ==========================================
-  // 3. การ Calibration
-  // ==========================================
-  constexpr uint16_t CALIB_SAMPLES       = 200;    // จำนวนรอบอ่านค่าเฉลี่ย
-  constexpr uint16_t CALIB_DELAY_MS      = 5;      // หน่วงเวลาระหว่างรอบ
-  constexpr float    CALIB_MAX_RANGE     = 0.15f;  // ช่วงกว้างสูงสุดของ gyro ระหว่างวัด (rad/s) เกินนี้ถือว่าขยับ
-  constexpr uint8_t  CALIB_MAX_ATTEMPTS  = 5;      // จำนวนครั้งที่วัดซ้ำสูงสุด
+  // 3. Calibration
+  constexpr uint16_t CALIB_SAMPLES       = 200;
+  constexpr uint16_t CALIB_DELAY_MS      = 5;
+  constexpr float    CALIB_MAX_RANGE     = 0.15f;
+  constexpr uint8_t  CALIB_MAX_ATTEMPTS  = 5;
 
-  // ==========================================
-  // 4. FreeRTOS Tasks และ คิวข้อมูล (Queue)
-  // ==========================================
-  constexpr UBaseType_t QUEUE_LENGTH       = 10;   // ขนาดบัฟเฟอร์ของคิวส่งข้อมูลเมาส์
-
-  // Stack Sizes (หน่วยเป็น Words ใน ESP32 FreeRTOS, 1 word = 4 bytes)
-  constexpr uint32_t STACK_SENSOR_TASK     = 4096;
-  constexpr uint32_t STACK_BLE_TASK        = 4096;
-
-  // Task Priorities (ยิ่งตัวเลขมาก Priority ยิ่งสูง)
+  // 4. FreeRTOS Tasks
+  constexpr UBaseType_t QUEUE_LENGTH       = 10;
+  constexpr uint32_t    STACK_SENSOR_TASK  = 4096;
+  constexpr uint32_t    STACK_BLE_TASK     = 4096;
   constexpr UBaseType_t PRIORITY_SENSOR    = 2;
   constexpr UBaseType_t PRIORITY_BLE       = 1;
+  constexpr BaseType_t  CORE_SENSOR_TASK   = 1;
+  constexpr BaseType_t  CORE_BLE_TASK      = 0;
 
-  // Core ID (ESP32: Core 0 ดูแล WiFi/BT, Core 1 ดูแลงานทั่วไป)
-  constexpr BaseType_t CORE_SENSOR_TASK    = 1;
-  constexpr BaseType_t CORE_BLE_TASK       = 0;
-
-  // ==========================================
-  // 5. Flex Sensor (นิ้วชี้ = Left Click, นิ้วกลาง = Right Click)
-  // ==========================================
-  constexpr uint8_t  PIN_FLEX_INDEX        = 34;   // ADC1 เท่านั้น (ADC2 ชนกับ WiFi/BLE)
+  // 5. Flex Sensor
+  constexpr uint8_t  PIN_FLEX_INDEX        = 34;
   constexpr uint8_t  PIN_FLEX_MIDDLE       = 35;
-  constexpr uint16_t FLEX_CALIB_SAMPLES    = 200;  // baseline ครั้งเดียวตอน boot
+  constexpr uint16_t FLEX_CALIB_SAMPLES    = 200;
   constexpr uint16_t FLEX_CALIB_DELAY_MS   = 10;
-  constexpr int      FLEX_PRESS_MARGIN     = 300;  // ต้องปรับตามค่า ADC จริงจากเซนเซอร์
-  constexpr int      FLEX_RELEASE_MARGIN   = 150;  // < PRESS_MARGIN กันสัญญาณกระตุก
-  constexpr float    FLEX_FILTER_ALPHA     = 0.3f; // EMA กันสัญญาณแกว่ง
-  constexpr uint8_t  FLEX_DEBOUNCE_SAMPLES = 3;    // 3 samples * 10ms = 30ms
-  // ขา 34/35 เป็น input-only ไม่มี pull resistor ในตัว ถ้าไม่ได้ต่อ flex sensor เลยค่าจะลอย (floating)
-  // แกว่งสุ่มได้กว้างมาก (มากกว่าสัญญาณรบกวนของเซนเซอร์จริงที่ต่ออยู่หลายเท่า) ตรวจตอน calibrate แล้วปิดนิ้วนั้นไว้กันคลิกหลอน
-  constexpr int      FLEX_CALIB_MAX_RANGE  = 150;  // ช่วงกว้างสูงสุดที่ยอมรับว่า "มีเซนเซอร์ต่ออยู่จริง" ตอน calibrate
+  constexpr int      FLEX_PRESS_MARGIN     = 300;
+  constexpr int      FLEX_RELEASE_MARGIN   = 150;
+  constexpr float    FLEX_FILTER_ALPHA     = 0.3f;
+  constexpr uint8_t  FLEX_DEBOUNCE_SAMPLES = 3;
+  constexpr int      FLEX_CALIB_MAX_RANGE  = 150;
 
-  // ==========================================
-  // 6. BLE Multi-Host (ต่อได้ 2 เครื่อง สลับด้วยปุ่ม)
-  // ==========================================
+  // 6. BLE Multi-Host
   constexpr uint8_t  MAX_HOSTS             = 2;
-  // ความเสถียรของ BLE
-  // Connection interval (หน่วย 1.25 ms): 16-32 = 20-40 ms
-  // ก่อนหน้าตั้ง 12-24 (15-30ms) แต่ถี่เกินไป: ตอนลิงก์หนึ่งต่ออยู่แล้วอีกลิงก์เข้ามา pairing พร้อมกัน
-  // วิทยุตัวเดียวแทบไม่มีช่องว่างให้ handshake ของลิงก์ใหม่ หลุดวนซ้ำก่อนต่อติด ขยายช่วงให้มีที่หายใจมากขึ้น
-  // ขอปรับก็ต่อเมื่อเครื่องที่ต่อเลือก interval ช้ากว่า MAX เท่านั้น และขอหลังต่อเสร็จ BLE_PARAM_CHECK_DELAY_MS
-  constexpr uint16_t BLE_CONN_INTERVAL_MIN = 16;
-  constexpr uint16_t BLE_CONN_INTERVAL_MAX = 32;
-  constexpr uint16_t BLE_CONN_TIMEOUT      = 400;   // supervision timeout หน่วย 10 ms = 4 วินาที (ทนสัญญาณหายชั่วคราว)
+  constexpr uint16_t BLE_CONN_INTERVAL_MIN = 16;   // 20 ms
+  constexpr uint16_t BLE_CONN_INTERVAL_MAX = 32;   // 40 ms
+  constexpr uint16_t BLE_CONN_LATENCY      = 4;    // Slave Latency ให้เครื่อง inactive ข้ามรอบได้
+  constexpr uint16_t BLE_CONN_TIMEOUT      = 400;  // 4 วินาที
   constexpr uint32_t BLE_PARAM_CHECK_DELAY_MS = 2000;
-  constexpr uint32_t BLE_ADV_CHECK_MS      = 1000;  // ตรวจว่ายัง advertise อยู่ตราบใดที่มีช่องว่าง
-  // ส่ง HID report ว่าง (ไม่ขยับ) ให้ทุกเครื่องที่ต่ออยู่ทุกกี่ ms ตอนที่ไม่มีข้อมูลอื่นให้ส่ง (0 = ปิด)
-  // ลิงก์ที่เงียบนานๆ มักถูกตัวรับ Bluetooth ของ Windows ตัดเพื่อประหยัดไฟ (power management)
+  constexpr uint32_t BLE_ADV_CHECK_MS      = 2500; // ตรวจ advertise เมื่อมี slot ว่าง
   constexpr uint32_t HID_KEEPALIVE_MS      = 5000;
-  constexpr uint16_t BLE_ADV_INTERVAL_MIN  = 80;    // หน่วย 0.625 ms = 50 ms
-  constexpr uint16_t BLE_ADV_INTERVAL_MAX  = 160;   // 100 ms
-  constexpr int8_t   BLE_TX_POWER_DBM      = 9;     // กำลังส่งสูงสุดของ ESP32 (+9 dBm)
+  constexpr uint16_t BLE_ADV_INTERVAL_MIN  = 80;   // 50 ms
+  constexpr uint16_t BLE_ADV_INTERVAL_MAX  = 160;  // 100 ms
+  constexpr int8_t   BLE_TX_POWER_DBM      = 9;
   constexpr uint16_t HID_APPEARANCE_MOUSE  = 0x03C2;
 
-  // ==========================================
-  // 6.1 Capacitive Touch (แตะ 1 ครั้ง = สลับ ทำงาน/หยุด, แตะ 2 ครั้ง = สลับเครื่อง A<->B)
-  // ==========================================
-  constexpr uint8_t  PIN_TOUCH             = 27;   // GPIO 27 = T7 (ห้ามใช้ GPIO 4 เพราะเป็นขา INT ของ MPU6050)
-  constexpr uint32_t TOUCH_THRESHOLD       = 500;  // touchRead < ค่านี้ = แตะ (ค่าต่ำลงเมื่อแตะ)
-  constexpr uint8_t  TOUCH_DEBOUNCE_SAMPLES = 2;   // ต้องอ่านได้สถานะเดิมติดกันกี่ครั้งถึงเชื่อ
-  constexpr uint32_t TOUCH_SAMPLE_MS       = 10;   // ตรวจค่าทัชทุกกี่ ms
-  constexpr uint32_t TOUCH_TAP_WINDOW_MS   = 400;  // แตะซ้ำภายในเวลานี้นับเป็นชุดเดียว (แตะครั้งเดียวจึงตอบสนองหลังเวลานี้)
-  constexpr uint32_t TOUCH_ISR_WAKE_HINT_MS = 50;  // touchAttachInterrupt ยิง 1 ครั้งตอนเริ่มแตะ (บาง core ไม่ยิงซ้ำตลอด) ใช้เป็น hint เสริมให้ปลุกจาก Idle ไว
+  // 6.1 Capacitive Touch
+  constexpr uint8_t  PIN_TOUCH             = 27;
+  constexpr uint32_t TOUCH_THRESHOLD       = 500;
+  constexpr uint8_t  TOUCH_DEBOUNCE_SAMPLES = 2;
+  constexpr uint32_t TOUCH_SAMPLE_MS       = 10;
+  constexpr uint32_t TOUCH_TAP_WINDOW_MS   = 400;
+  constexpr uint32_t TOUCH_ISR_WAKE_HINT_MS = 50;
 
-  // ==========================================
-  // 6.2 Idle Mode (ซอฟต์: OLED ดับ + งด I2C/BLE queue แต่ BLE ยังต่ออยู่)
-  // ==========================================
-  constexpr uint32_t IDLE_TIMEOUT_MS       = 30000;  // ไม่มีการขยับ/ปุ่ม/แตะต่อเนื่องเท่านี้ ms ถึงเข้า Idle
+  // 6.2 Idle Mode
+  constexpr uint32_t IDLE_TIMEOUT_MS       = 30000;
 
-  // ==========================================
   // 6.3 I2C Reliability
-  // ==========================================
-  constexpr uint8_t  I2C_FAIL_THRESHOLD     = 10;  // อ่าน/เขียน I2C พลาดติดกันเท่านี้ครั้ง -> ลอง reset bus
-  constexpr uint8_t  I2C_RESTART_THRESHOLD  = 10;  // reset bus แล้วยังพลาดติดกันอีกเท่านี้ครั้ง -> ESP.restart()
+  constexpr uint8_t  I2C_FAIL_THRESHOLD     = 10;
+  constexpr uint8_t  I2C_RESTART_THRESHOLD  = 10;
 
-  // ==========================================
-  // 7. Clipboard Service (custom GATT: เครื่อง <-> ESP32)
-  // ==========================================
-  constexpr size_t   CLIP_MAX_BYTES        = 16384;   // ข้อความใหญ่กว่านี้ถูกปฏิเสธ
-  constexpr uint32_t CLIP_TTL_MS           = 60000;  // ล้างข้อความทิ้งเองหลังรับสำเร็จ
-  constexpr uint32_t CLIP_RX_TIMEOUT_MS    = 5000;   // เงียบนานเท่านี้ระหว่างรับ = ทิ้งข้อความที่ค้าง
-  constexpr uint16_t CLIP_MIN_CHUNK        = 16;     // ขนาด payload ต่อชิ้นขั้นต่ำ (MTU 23)
+  // 7. Clipboard Service (GATT)
+  constexpr size_t   CLIP_MAX_BYTES        = 16384;
+  constexpr uint32_t CLIP_TTL_MS           = 60000;
+  constexpr uint32_t CLIP_RX_TIMEOUT_MS    = 5000;
+  constexpr uint16_t CLIP_MIN_CHUNK        = 16;
   constexpr uint16_t CLIP_MAX_CHUNK        = 240;
   constexpr const char *CLIP_SERVICE_UUID  = "7d3c0001-9a4e-4f6b-8c21-5b6e1f0a9d10";
-  constexpr const char *CLIP_RX_UUID       = "7d3c0002-9a4e-4f6b-8c21-5b6e1f0a9d10";  // เครื่อง -> ESP32 (write)
-  constexpr const char *CLIP_TX_UUID       = "7d3c0003-9a4e-4f6b-8c21-5b6e1f0a9d10";  // ESP32 -> เครื่อง (notify)
-  constexpr const char *CLIP_STATUS_UUID   = "7d3c0004-9a4e-4f6b-8c21-5b6e1f0a9d10";  // สถานะ (read/notify)
+  constexpr const char *CLIP_RX_UUID       = "7d3c0002-9a4e-4f6b-8c21-5b6e1f0a9d10";
+  constexpr const char *CLIP_TX_UUID       = "7d3c0003-9a4e-4f6b-8c21-5b6e1f0a9d10";
+  constexpr const char *CLIP_STATUS_UUID   = "7d3c0004-9a4e-4f6b-8c21-5b6e1f0a9d10";
 }
 
 #endif // CONFIG_H

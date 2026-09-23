@@ -1,8 +1,4 @@
-"""อ่าน/เขียนข้อความ clipboard บน Windows (ต้องมี pywin32)
-
-- ดักการเปลี่ยนด้วย GetClipboardSequenceNumber (ไม่ต้อง hook)
-- อ่านเฉพาะข้อความล้วน ข้ามไฟล์/รูป และข้อมูลที่โปรแกรมจัดการรหัสผ่านตั้งธงไม่ให้ยุ่ง
-"""
+"""อ่าน/เขียน clipboard บน Windows"""
 import ctypes
 import time
 
@@ -12,7 +8,6 @@ import win32con
 _user32 = ctypes.windll.user32
 _user32.GetClipboardSequenceNumber.restype = ctypes.c_uint32
 
-# ธงที่ password manager / Windows ใช้บอก "อย่าเก็บ/อย่า sync ข้อมูลนี้"
 _FMT_EXCLUDE_MONITOR = wc.RegisterClipboardFormat("ExcludeClipboardContentFromMonitorProcessing")
 _FMT_CAN_HISTORY = wc.RegisterClipboardFormat("CanIncludeInClipboardHistory")
 _FMT_CAN_UPLOAD = wc.RegisterClipboardFormat("CanUploadToCloudClipboard")
@@ -25,8 +20,6 @@ def sequence_number() -> int:
 
 
 class _Clipboard:
-    """เปิด clipboard พร้อม retry (โปรแกรมอื่นอาจถือไว้อยู่ชั่วครู่)"""
-
     def __enter__(self):
         for _ in range(20):
             try:
@@ -49,14 +42,12 @@ def _flag_says_private() -> bool:
                 raw = wc.GetClipboardData(fmt)
             except Exception:
                 continue
-            # ค่าเป็น DWORD: 0 = ห้าม
             if isinstance(raw, (bytes, bytearray)) and len(raw) >= 4 and int.from_bytes(raw[:4], "little") == 0:
                 return True
     return False
 
 
 def read_text():
-    """คืนข้อความใน clipboard หรือ None ถ้าไม่ใช่ข้อความล้วน/เป็นข้อมูลส่วนตัว/ว่าง"""
     try:
         with _Clipboard():
             if not wc.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
@@ -74,7 +65,6 @@ def read_text():
 
 
 def write_text(text: str) -> int:
-    """ใส่ข้อความเข้า clipboard คืนหมายเลข sequence หลังเขียน (ใช้แยกว่าการเปลี่ยนนี้มาจากแอปเอง)"""
     with _Clipboard():
         wc.EmptyClipboard()
         wc.SetClipboardData(win32con.CF_UNICODETEXT, text)
