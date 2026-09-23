@@ -32,6 +32,7 @@ class GloveLink:
         self._lock = asyncio.Lock()
         self._msg_id = 0
         self._last_crc = None
+        self._last_sent_at = 0.0
         self._tasks = set()
         self.stopping = False
 
@@ -104,6 +105,9 @@ class GloveLink:
             state, length = p.parse_status(bytes(data))
         except p.ProtocolError:
             return
+        # ถ้าเครื่องนี้เพิ่งส่งข้อความเอง ไม่ต้องแย่งดึงข้อมูลตัวเองกลับ
+        if time.monotonic() - self._last_sent_at < 2.0:
+            return
         if state == p.STATE_HAS and length > 0:
             task = asyncio.ensure_future(self._fetch())
             self._tasks.add(task)
@@ -131,6 +135,7 @@ class GloveLink:
         async with self._lock:
             self._drain()
             self._last_crc = p.crc32(data)
+            self._last_sent_at = time.monotonic()
             try:
                 for packet in p.encode_message(self._next_id(), data, self._client.mtu_size):
                     await self._write(packet)
@@ -152,20 +157,28 @@ class GloveLink:
             if not self.connected:
                 return
             self._drain()
-            reassembler = p.Reassembler()
-            try:
-                await self._write(p.pack(p.GET, self._next_id()))
-                data = None
-                while data is None:
-                    packet = await asyncio.wait_for(self._inbox.get(), ACK_TIMEOUT)
-                    data = reassembler.feed(packet)
-            except (asyncio.TimeoutError, p.ProtocolError) as exc:
-                log.info("ดึงข้อความไม่สำเร็จ: %s", exc)
-                return
-            except Exception as exc:
-                log.warning("ดึงข้อความผิดพลาด: %s", exc)
-                return
+            data = None
+            for attempt in range(3):
+                reassembler = p.Reassembler()
+                try:
+                    await self._write(p.pack(p.GET, self._next_id()))
+                    while data is None:
+                        packet = await asyncio.wait_for(self._inbox.get(), ACK_TIMEOUT)
+                        data = reassembler.feed(packet)
+                    break
+                except (asyncio.TimeoutError, p.ProtocolError) as exc:
+                    if attempt < 2:
+                        await asyncio.sleep(0.15 * (attempt + 1))
+                        self._drain()
+                        continue
+                    log.info("ดึงข้อความไม่สำเร็จ: %s", exc)
+                    return
+                except Exception as exc:
+                    log.warning("ดึงข้อความผิดพลาด: %s", exc)
+                    return
 
+            if data is None:
+                return
             crc = p.crc32(data)
             if crc == self._last_crc:
                 return

@@ -62,7 +62,13 @@ void TaskSensor(void *pvParameters) {
       bool cycleOk = true;
 
       if (sleepCtl.isIdle() && !touchedNow) {
-        sleepCtl.tick(false, false);
+        float gx, gy, gz;
+        if (mpu.readGyro(gx, gy, gz)) {
+          MousePacket packet = motion.process(gx, gy, gz, mpu);
+          if (packet.dx != 0 || packet.dy != 0) {
+            sleepCtl.tick(true, false);
+          }
+        }
       } else {
         MousePacket packet = {0, 0, 0};
 
@@ -82,8 +88,9 @@ void TaskSensor(void *pvParameters) {
 
         bool buttonsChanged = (packet.buttons != lastButtons);
         if (packet.dx != 0 || packet.dy != 0 || buttonsChanged) {
-          xQueueSend(mouseQueue, &packet, 0);
-          lastButtons = packet.buttons;
+          if (xQueueSend(mouseQueue, &packet, 0) == pdTRUE) {
+            lastButtons = packet.buttons;
+          }
         }
 
         sleepCtl.tick(packet.dx != 0 || packet.dy != 0 || buttonsChanged, touchedNow);
@@ -120,6 +127,9 @@ void TaskBleMouse(void *pvParameters) {
   for (;;) {
     if (xQueueReceive(mouseQueue, &packet, pdMS_TO_TICKS(10)) == pdTRUE) {
       hidMouse.send(packet);
+      while (xQueueReceive(mouseQueue, &packet, 0) == pdTRUE) {
+        hidMouse.send(packet);
+      }
     }
 
     uint8_t taps = touchTap.update();

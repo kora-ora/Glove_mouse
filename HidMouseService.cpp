@@ -228,6 +228,13 @@ void HidMouseService::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) 
 
 void HidMouseService::onAuthenticationComplete(NimBLEConnInfo &connInfo) {
   int slot = slotOfHandle(connInfo.getConnHandle());
+  if (slot >= 0) {
+    NimBLEAddress idAddr = connInfo.getIdAddress();
+    if (!idAddr.isNull()) {
+      _addr[slot] = idAddr;
+      _hasAddr[slot] = true;
+    }
+  }
   Serial.printf("🔐 [BLE] Host %c เข้ารหัส=%s bonded=%s\n", slot >= 0 ? 'A' + slot : '?',
                 connInfo.isEncrypted() ? "ใช่" : "ไม่", connInfo.isBonded() ? "ใช่" : "ไม่");
 }
