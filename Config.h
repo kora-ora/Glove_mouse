@@ -52,6 +52,17 @@ namespace Config {
   constexpr uint32_t TOUCH_CLICK_THRESHOLD      = 500;  // touchRead < ค่านี้ = แตะ (เหมือนตัวเปลี่ยน state)
   constexpr uint8_t  TOUCH_CLICK_DEBOUNCE_SAMPLES = 2;  // จำนวน sample สำหรับ debounce กันสัญญาณรบกวน
 
+  // 5.1 Legacy Flex Sensor (รองรับไฟล์เดิมหากเปิดแท็บค้างใน Arduino IDE)
+  constexpr uint8_t  PIN_FLEX_INDEX        = 34;
+  constexpr uint8_t  PIN_FLEX_MIDDLE       = 35;
+  constexpr uint16_t FLEX_CALIB_SAMPLES    = 200;
+  constexpr uint16_t FLEX_CALIB_DELAY_MS   = 10;
+  constexpr int      FLEX_PRESS_MARGIN     = 300;
+  constexpr int      FLEX_RELEASE_MARGIN   = 150;
+  constexpr float    FLEX_FILTER_ALPHA     = 0.3f;
+  constexpr uint8_t  FLEX_DEBOUNCE_SAMPLES = 3;
+  constexpr int      FLEX_CALIB_MAX_RANGE  = 150;
+
   // 6. BLE Multi-Host
   constexpr uint8_t  MAX_HOSTS             = 2;
   constexpr uint16_t BLE_CONN_INTERVAL_MIN = 16;   // 20 ms
