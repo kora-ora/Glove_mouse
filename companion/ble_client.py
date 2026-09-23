@@ -69,7 +69,7 @@ class GloveLink:
             return self._known_device(self.address)
         paired = await asyncio.to_thread(find_paired_address, self.name)
         if paired:
-            log.info("พบถุงมือที่ pair ไว้ใน Windows: %s", paired)
+            log.info("พบถุงมือที่ pair ไว้: %s", paired)
             return self._known_device(paired)
         device = await BleakScanner.find_device_by_name(self.name, timeout=10)
         if device is not None:
