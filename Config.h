@@ -46,16 +46,11 @@ namespace Config {
   constexpr BaseType_t  CORE_SENSOR_TASK   = 1;
   constexpr BaseType_t  CORE_BLE_TASK      = 0;
 
-  // 5. Flex Sensor
-  constexpr uint8_t  PIN_FLEX_INDEX        = 34;
-  constexpr uint8_t  PIN_FLEX_MIDDLE       = 35;
-  constexpr uint16_t FLEX_CALIB_SAMPLES    = 200;
-  constexpr uint16_t FLEX_CALIB_DELAY_MS   = 10;
-  constexpr int      FLEX_PRESS_MARGIN     = 300;
-  constexpr int      FLEX_RELEASE_MARGIN   = 150;
-  constexpr float    FLEX_FILTER_ALPHA     = 0.3f;
-  constexpr uint8_t  FLEX_DEBOUNCE_SAMPLES = 3;
-  constexpr int      FLEX_CALIB_MAX_RANGE  = 150;
+  // 5. Capacitive Touch Click
+  constexpr uint8_t  PIN_TOUCH_INDEX            = 33;   // GPIO 33 = T8 (คลิกซ้าย - นิ้วชี้)
+  constexpr uint8_t  PIN_TOUCH_MIDDLE           = 32;   // GPIO 32 = T9 (คลิกขวา - นิ้วกลาง)
+  constexpr uint32_t TOUCH_CLICK_THRESHOLD      = 500;  // touchRead < ค่านี้ = แตะ (เหมือนตัวเปลี่ยน state)
+  constexpr uint8_t  TOUCH_CLICK_DEBOUNCE_SAMPLES = 2;  // จำนวน sample สำหรับ debounce กันสัญญาณรบกวน
 
   // 6. BLE Multi-Host
   constexpr uint8_t  MAX_HOSTS             = 2;

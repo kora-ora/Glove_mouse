@@ -1,6 +1,6 @@
 #include "OledStatusDisplay.h"
 
-#include "FlexClickManager.h"
+#include "TouchClickManager.h"
 
 bool OledStatusDisplay::begin(const Ds3231Rtc *rtc) {
   _rtc = rtc;
@@ -37,9 +37,9 @@ void OledStatusDisplay::showCalibrating() {
 
 void OledStatusDisplay::drawButtons(uint8_t buttons) {
   _display.print("Click: ");
-  _display.print((buttons & FLEX_BUTTON_LEFT) != 0 ? "L" : "-");
+  _display.print((buttons & TOUCH_BUTTON_LEFT) != 0 ? "L" : "-");
   _display.print(" ");
-  _display.println((buttons & FLEX_BUTTON_RIGHT) != 0 ? "R" : "-");
+  _display.println((buttons & TOUCH_BUTTON_RIGHT) != 0 ? "R" : "-");
 }
 
 void OledStatusDisplay::clear() {

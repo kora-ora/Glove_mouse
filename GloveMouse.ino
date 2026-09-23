@@ -4,7 +4,7 @@
 #include "MouseTypes.h"
 #include "MPU6050Driver.h"
 #include "MotionProcessor.h"
-#include "FlexClickManager.h"
+#include "TouchClickManager.h"
 #include "HidMouseService.h"
 #include "TouchTapDetector.h"
 #include "ClipboardService.h"
@@ -16,7 +16,7 @@
 // Instances
 MPU6050Driver     mpu;
 MotionProcessor   motion;
-FlexClickManager  flexClick;
+TouchClickManager touchClick;
 HidMouseService   hidMouse;
 TouchTapDetector  touchTap;
 ClipboardService  clipboard;
@@ -58,7 +58,7 @@ void TaskSensor(void *pvParameters) {
 
   for (;;) {
     if (xSemaphoreTake(mpuSemaphore, portMAX_DELAY) == pdTRUE) {
-      bool touchedNow = touchTap.isTouchedNow();
+      bool touchedNow = touchTap.isTouchedNow() || touchClick.isTouchedNow();
       bool cycleOk = true;
 
       if (sleepCtl.isIdle() && !touchedNow) {
@@ -81,7 +81,7 @@ void TaskSensor(void *pvParameters) {
           cycleOk = false;
         }
 
-        packet.buttons |= flexClick.update();
+        packet.buttons |= touchClick.update();
         gDebugButtons = packet.buttons;
 
         oled.update(hidMouse.isConnected(), hidMouse.activeSlot(), packet);
@@ -140,7 +140,10 @@ void TaskBleMouse(void *pvParameters) {
       } else if (cmd == 'b') {
         Serial.println(NimBLEDevice::deleteAllBonds() ? "🧹 [BLE] ล้าง bond แล้ว" : "⚠️ ล้าง bond ไม่สำเร็จ");
       } else if (cmd == 't') {
-        Serial.printf("👆 [TOUCH] value=%lu\n", (unsigned long)touchTap.rawValue());
+        Serial.printf("👆 [TOUCH] State(T7/P27)=%lu | Left(T8/P%d)=%lu | Right(T9/P%d)=%lu\n",
+                      (unsigned long)touchTap.rawValue(),
+                      Config::PIN_TOUCH_INDEX, (unsigned long)touchClick.rawIndex(),
+                      Config::PIN_TOUCH_MIDDLE, (unsigned long)touchClick.rawMiddle());
       } else if (cmd == 'g') {
         Serial.printf("🕹️ [GYRO] gx=%.4f gy=%.4f gz=%.4f -> dx=%d dy=%d buttons=0x%02X paused=%s\n",
                       gDebugGx, gDebugGy, gDebugGz, gDebugDx, gDebugDy, gDebugButtons, hidMouse.isPaused() ? "ใช่" : "ไม่");
@@ -189,8 +192,7 @@ void setup() {
   pinMode(Config::INTERRUPT_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(Config::INTERRUPT_PIN), onMPUDataReady, RISING);
 
-  flexClick.begin(Config::PIN_FLEX_INDEX, Config::PIN_FLEX_MIDDLE);
-  flexClick.calibrate();
+  touchClick.begin(Config::PIN_TOUCH_INDEX, Config::PIN_TOUCH_MIDDLE);
 
   touchTap.begin(Config::PIN_TOUCH);
   buzzer.begin(Config::PIN_BUZZER, Config::BUZZER_ACTIVE_HIGH);

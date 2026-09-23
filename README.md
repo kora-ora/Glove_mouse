@@ -108,6 +108,14 @@ OLED จะลอง I2C address `0x3C` ก่อน แล้วลอง `0x3D
 
 เมื่อแตะ 2 ครั้งเพื่อสลับ Host A/B สำเร็จ บัสเซอร์จะดัง 100 ms โดยไม่หยุดการทำงานของ BLE. หากโมดูลของคุณเป็นแบบ active-low ให้เปลี่ยน `BUZZER_ACTIVE_HIGH` เป็น `false` ใน `Config.h`.
 
+การต่อ **Capacitive Touch Pads** (ใช้สายไฟหรือแผ่นสัมผัสต่อตรงกับขา Touch ของ ESP32 แบบเดียวกับตัวเปลี่ยน State):
+
+| ฟังก์ชัน | ขา ESP32 | คำอธิบาย |
+|:---:|:---:|---|
+| **คลิกซ้าย (Left Click)** | **GPIO 33 (T8)** | ปลายนิ้วชี้ แตะ = คลิกซ้าย / แตะค้าง = ลากเมาส์ (Drag) |
+| **คลิกขวา (Right Click)** | **GPIO 32 (T9)** | ปลายนิ้วกลาง แตะ = คลิกขวา |
+| **เปลี่ยน State / สลับ Host** | **GPIO 27 (T7)** | แตะ 1 ครั้ง = หยุด/ทำงานต่อ (Pause), แตะ 2 ครั้ง = สลับโฮสต์ A/B |
+
 ---
 
 ## 📐 หลักการประมวลผลการเคลื่อนไหว (Motion Processing Pipeline)
@@ -155,7 +163,7 @@ OLED จะลอง I2C address `0x3C` ก่อน แล้วลอง `0x3D
 | **2** | [`MouseTypes.h`](MouseTypes.h) | struct `MousePacket` ที่ส่งข้าม Task ผ่าน Queue |
 | **3** | [`MPU6050Driver`](MPU6050Driver.cpp) | ไดรเวอร์ I2C ของ MPU6050: sample rate, interrupt, calibrate (วัดซ้ำจนนิ่ง) |
 | **4** | [`MotionProcessor`](MotionProcessor.cpp) | แปลงค่าเชิงมุมเป็นระยะ dx, dy (offset, deadzone, ความไว) |
-| **5** | [`FlexClickManager`](FlexClickManager.cpp) | อ่าน flex sensor 2 ตัวเป็นปุ่มคลิกซ้าย/ขวา |
+| **5** | [`TouchClickManager`](TouchClickManager.cpp) | อ่าน capacitive touch pad 2 จุดเป็นปุ่มคลิกซ้าย/ขวา |
 | **6** | [`HidMouseService`](HidMouseService.cpp) | เมาส์ BLE HID บน NimBLE ต่อได้ 2 เครื่อง สลับเครื่อง/หยุดทำงาน ดูแลการเชื่อมต่อ |
 | **7** | [`TouchTapDetector`](TouchTapDetector.cpp) | นับการแตะ capacitive touch (1 ครั้ง / 2 ครั้ง) |
 | **8** | [`ClipboardStore`](ClipboardStore.cpp), [`ClipboardService`](ClipboardService.cpp) | ที่เก็บข้อความในแรม และ GATT service ของ clipboard |
@@ -243,9 +251,9 @@ constexpr bool INVERT_Y = true;  // true = สลับขึ้น-ลง
 
 โครงสร้างโค้ดแบบ FreeRTOS ปัจจุบันถูกเตรียมพร้อมสำหรับการเพิ่มฟังก์ชันเหล่านี้ได้ทันที:
 * [x] **Clutch Switch (ตัดการทำงานชั่วคราว):** แตะทัช 1 ครั้งเพื่อหยุด/ทำงานต่อ ให้ยกมือกลับมาตำแหน่งตั้งต้นได้
-* [x] **Flex Sensors (ตรวจจับการงอนิ้ว) เขียนโค้ดแล้ว รอต่อเซนเซอร์จริง:**
-  * นิ้วชี้งอ $\rightarrow$ คลิกซ้าย (Left Click)
-  * นิ้วกลางงอ $\rightarrow$ คลิกขวา (Right Click)
+* [x] **Touch Click (ตรวจจับการแตะนิ้วด้วย Capacitive Touch):**
+  * นิ้วชี้แตะ $\rightarrow$ คลิกซ้าย (Left Click)
+  * นิ้วกลางแตะ $\rightarrow$ คลิกขวา (Right Click)
 * [ ] **Gesture Recognition:** ตรวจจับท่าทางการสะบัดมือสำหรับการ Scroll หรือ Back / Forward หน้าเว็บ
 * [ ] **Battery Management:** อ่านระดับแรงดันแบตเตอรี่แล้วรายงานกลับไปยังคอมพิวเตอร์ผ่าน BLE HID Battery Service
 
@@ -256,8 +264,8 @@ constexpr bool INVERT_Y = true;  // true = สลับขึ้น-ลง
 | เนื้อหา | ใช้ตรงไหนในโปรเจกต์ |
 |---|---|
 | Interrupts (ISR, pin-change) | `attachInterrupt` อ่าน MPU6050 data-ready, `touchAttachInterrupt` ของทัช |
-| SW Debouncing | `FlexClickManager` และ `TouchTapDetector` ใช้หลัก debounce เดียวกัน |
-| ADC Conversion | อ่านค่า flex sensor ผ่าน `analogRead` |
+| SW Debouncing | `TouchClickManager` และ `TouchTapDetector` ใช้หลัก debounce เดียวกัน |
+| Capacitive Touch | ESP32 built-in touch sensor (`touchRead`) ใช้ทั้งคลิกซ้าย/ขวาและสลับโหมด |
 | Buzzer / tone.h | `Buzzer.cpp` (active buzzer บน GPIO 26) |
 | Watchdog timer | ไม่ได้ใช้ |
 | Timer/PWM | ไม่ได้ใช้ตรงๆ (ไม่มี PWM/hardware timer ในโปรเจกต์) |

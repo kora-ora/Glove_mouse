@@ -5,7 +5,7 @@
 #include "OledStatusDisplay.h"
 
 // Idle mode แบบซอฟต์: ไม่มีการขยับ/ปุ่ม/แตะต่อเนื่องเกิน Config::IDLE_TIMEOUT_MS
-// -> ดับจอ OLED และให้ TaskSensor งดงานหนัก (อ่าน gyro/flex/ส่ง BLE queue)
+// -> ดับจอ OLED และให้ TaskSensor งดงานหนัก (อ่าน gyro/touch click/ส่ง BLE queue)
 // BLE ยังเชื่อมต่ออยู่ตลอด ไม่ใช่ chip sleep จริง
 class SleepController {
 public:
