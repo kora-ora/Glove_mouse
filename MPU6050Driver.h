@@ -39,7 +39,7 @@ private:
 
   bool checkConnection(uint8_t addr) const;
   bool writeRegister(uint8_t reg, uint8_t data) const;
-  uint8_t readRegister(uint8_t reg) const;
+  bool readRegister(uint8_t reg, uint8_t &data) const;
 };
 
 #endif // MPU6050_DRIVER_H
