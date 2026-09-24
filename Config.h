@@ -19,7 +19,7 @@ namespace Config {
 
   // Buzzer
   constexpr uint8_t  PIN_BUZZER          = 26;
-  constexpr bool     BUZZER_ACTIVE_HIGH  = true;
+  constexpr bool     BUZZER_ACTIVE_HIGH  = false;
   constexpr uint16_t BUZZER_SWITCH_MS    = 100;
   constexpr uint16_t BUZZER_TAP_MS       = 40;
 
@@ -101,7 +101,6 @@ namespace Config {
   constexpr const char *CLIP_SERVICE_UUID  = "7d3c0001-9a4e-4f6b-8c21-5b6e1f0a9d10";
   constexpr const char *CLIP_RX_UUID       = "7d3c0002-9a4e-4f6b-8c21-5b6e1f0a9d10";
   constexpr const char *CLIP_TX_UUID       = "7d3c0003-9a4e-4f6b-8c21-5b6e1f0a9d10";
-  constexpr const char *CLIP_STATUS_UUID   = "7d3c0004-9a4e-4f6b-8c21-5b6e1f0a9d10";
-}
+  constexpr const char *CLIP_STATUS_UUID   = "7d3c0004-9a4e-4f6b-8c21-5b6e1f0a9d10";}
 
 #endif // CONFIG_H
