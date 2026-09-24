@@ -84,7 +84,7 @@ void TaskSensor(void *pvParameters) {
         packet.buttons |= touchClick.update();
         gDebugButtons = packet.buttons;
 
-        oled.update(hidMouse.isConnected(), hidMouse.activeSlot(), packet);
+        oled.update(hidMouse.isConnected(), hidMouse.activeSlot(), hidMouse.isPaused(), packet);
 
         bool buttonsChanged = (packet.buttons != lastButtons);
         if (packet.dx != 0 || packet.dy != 0 || buttonsChanged) {

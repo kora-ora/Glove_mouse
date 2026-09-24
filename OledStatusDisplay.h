@@ -13,12 +13,13 @@ class OledStatusDisplay {
 public:
   bool begin(const Ds3231Rtc *rtc = nullptr);
   void showCalibrating();
-  void update(bool connected, int activeSlot, const MousePacket &packet);
+  void update(bool connected, int activeSlot, bool paused, const MousePacket &packet);
+  void update(bool connected, int activeSlot, const MousePacket &packet) {
+    update(connected, activeSlot, false, packet);
+  }
   void clear();  // ดับจอ (blank) ตอนเข้า Idle mode
 
 private:
-  void drawButtons(uint8_t buttons);
-
   Adafruit_SH1106G _display{Config::OLED_WIDTH, Config::OLED_HEIGHT, &Wire, -1};
   bool _available = false;
   const Ds3231Rtc *_rtc = nullptr;
@@ -26,6 +27,7 @@ private:
   uint32_t _lastRefreshAt = 0;
   bool _lastConnected = false;
   int  _lastSlot = -1;
+  bool _lastPaused = false;
 };
 
 #endif // OLED_STATUS_DISPLAY_H

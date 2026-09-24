@@ -27,19 +27,25 @@ void OledStatusDisplay::showCalibrating() {
   if (!_available) return;
 
   _display.clearDisplay();
-  _display.setTextSize(1);
-  _display.setCursor(18, 22);
-  _display.println("Calibrating...");
-  _display.setCursor(0, 40);
-  _display.println("Keep glove still");
-  _display.display();
-}
+  _display.setTextColor(SH110X_WHITE);
 
-void OledStatusDisplay::drawButtons(uint8_t buttons) {
-  _display.print("Click: ");
-  _display.print((buttons & TOUCH_BUTTON_LEFT) != 0 ? "L" : "-");
-  _display.print(" ");
-  _display.println((buttons & TOUCH_BUTTON_RIGHT) != 0 ? "R" : "-");
+  // Header
+  _display.setTextSize(1);
+  _display.setCursor(18, 2);
+  _display.print("GLOVE AIR MOUSE");
+  _display.drawFastHLine(0, 12, 128, SH110X_WHITE);
+
+  // Calibrating badge
+  _display.drawRoundRect(8, 18, 112, 22, 3, SH110X_WHITE);
+  _display.setTextSize(1);
+  _display.setCursor(10, 25);
+  _display.print("CALIBRATING SENSOR");
+
+  // Footer guide
+  _display.drawFastHLine(0, 48, 128, SH110X_WHITE);
+  _display.setCursor(16, 53);
+  _display.print("Keep glove still");
+  _display.display();
 }
 
 void OledStatusDisplay::clear() {
@@ -48,16 +54,16 @@ void OledStatusDisplay::clear() {
   _display.display();
 }
 
-void OledStatusDisplay::update(bool connected, int activeSlot, const MousePacket &packet) {
+void OledStatusDisplay::update(bool connected, int activeSlot, bool paused, const MousePacket &packet) {
   if (!_available) return;
 
   const uint32_t now = millis();
-  const bool stateChanged = (connected != _lastConnected || activeSlot != _lastSlot);
+  const bool stateChanged = (connected != _lastConnected || activeSlot != _lastSlot || paused != _lastPaused);
   const bool isMoving = (packet.dx != 0 || packet.dy != 0);
 
   // ขณะที่เมาส์กำลังเคลื่อนไหว (isMoving): งดส่ง Framebuffer 1KB ผ่าน I2C (~25ms) ชั่วคราว
   // เพื่อไม่ให้ I2C ไปบล็อกลูป 100Hz ของ MPU6050 จนเคอร์เซอร์สะดุด/กระตุก (Micro-stuttering)
-  // จอจะกลับมาอัปเดตเมื่อมือหยุดนิ่ง (dx=0, dy=0), มีสถานะ BLE เปลี่ยน หรือครบ 1 วินาที
+  // จอจะกลับมาอัปเดตเมื่อมือหยุดนิ่ง (dx=0, dy=0), มีสถานะเปลี่ยน หรือครบ 1 วินาที (เพื่อเดินเวลา RTC)
   if (isMoving && !stateChanged && (now - _lastRefreshAt < 1000)) {
     return;
   }
@@ -66,26 +72,66 @@ void OledStatusDisplay::update(bool connected, int activeSlot, const MousePacket
   _lastRefreshAt = now;
   _lastConnected = connected;
   _lastSlot = activeSlot;
+  _lastPaused = paused;
 
   _display.clearDisplay();
+  _display.setTextColor(SH110X_WHITE);
+
+  // --- 1. Top Bar: เวลา (RTC) & สถานะ Host ---
   _display.setTextSize(1);
-  _display.setCursor(0, 16);
+  _display.setCursor(2, 2);
   if (_rtc != nullptr) {
-    char time[9];
-    _display.print("Time: ");
-    // อ่านเวลาไม่ได้ (ไม่พบ RTC / address ผิด / ค่าไม่ถูกต้อง) ให้แสดงขีดแทน จะได้รู้ว่าอ่านไม่ได้ ไม่ใช่ไม่วาด
-    _display.println(_rtc->readTime(time, sizeof(time)) ? time : "--:--:--");
-  }
-  _display.setCursor(0, 30);
-  if (connected && activeSlot >= 0) {
-    _display.print("BLE: Connected ");
-    _display.println(static_cast<char>('A' + activeSlot));
+    char timeStr[9];
+    _display.print(_rtc->readTime(timeStr, sizeof(timeStr)) ? timeStr : "--:--:--");
   } else {
-    _display.println("BLE: Waiting...");
+    _display.print("--:--:--");
   }
-  _display.setCursor(0, 44);
-  _display.printf("Move X:%+d Y:%+d\n", packet.dx, packet.dy);
-  _display.setCursor(0, 56);
-  drawButtons(packet.buttons);
+
+  // ด้านขวาบน: ระบุ Host ปัจจุบัน
+  if (connected && activeSlot >= 0) {
+    _display.setCursor(86, 2);
+    _display.printf("HOST %c", 'A' + activeSlot);
+  } else {
+    _display.setCursor(80, 2);
+    _display.print("NO LINK");
+  }
+  _display.drawFastHLine(0, 12, 128, SH110X_WHITE);
+
+  // --- 2. Main State (ตรงกลาง): แสดงสถานะการทำงานสำหรับ User ---
+  if (!connected) {
+    // ยังไม่เชื่อมต่อ BLE
+    _display.drawRoundRect(14, 16, 100, 20, 3, SH110X_WHITE);
+    _display.setTextSize(2);
+    _display.setCursor(22, 19);
+    _display.print("PAIRING");
+  } else if (paused) {
+    // เชื่อมต่อแล้ว แต่ Pause การขยับเมาส์ไว้ (แตะ 1 ครั้ง)
+    _display.drawRoundRect(16, 16, 96, 20, 3, SH110X_WHITE);
+    _display.setTextSize(2);
+    _display.setCursor(28, 19);
+    _display.print("PAUSED");
+  } else {
+    // เชื่อมต่อแล้ว พร้อมใช้งาน (Tracking Active)
+    _display.fillRoundRect(16, 16, 96, 20, 3, SH110X_WHITE);
+    _display.setTextColor(SH110X_BLACK);
+    _display.setTextSize(2);
+    _display.setCursor(28, 19);
+    _display.print("ACTIVE");
+    _display.setTextColor(SH110X_WHITE);
+  }
+
+  // --- 3. Action Hint: ท่าแตะ ตัวใหญ่บรรทัดเดียว (รวม status เดิม + hint เดิม) ---
+  _display.setTextSize(2);
+  if (!connected) {
+    _display.setCursor(10, 44);
+    _display.print("2x SWITCH");
+  } else if (paused) {
+    _display.setCursor(10, 44);
+    _display.print("1x RESUME");
+  } else {
+    _display.setCursor(16, 44);
+    _display.print("1x PAUSE");
+  }
+
   _display.display();
 }

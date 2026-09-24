@@ -24,9 +24,9 @@ namespace Config {
   constexpr uint16_t BUZZER_TAP_MS       = 40;
 
   // 2. เมาส์และความไว
-  constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 100;
-  constexpr float    SENSITIVITY_X      = 50.0f;
-  constexpr float    SENSITIVITY_Y      = 50.0f;
+  constexpr uint16_t SENSOR_SAMPLE_RATE_HZ = 500;
+  constexpr float    SENSITIVITY_X      = 25.0f;
+  constexpr float    SENSITIVITY_Y      = 25.0f;
   constexpr float    DEADZONE           = 0.06f;
   constexpr bool     INVERT_X           = false;
   constexpr bool     INVERT_Y           = true;
