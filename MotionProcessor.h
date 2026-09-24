@@ -2,9 +2,9 @@
 #define MOTION_PROCESSOR_H
 
 #include <Arduino.h>
-#include "Config.h"
-#include "MPU6050Driver.h"
 #include "MouseTypes.h"
+
+class MPU6050Driver;  // forward declaration: ใช้แค่ reference จึงไม่ต้อง include ทั้งไฟล์
 
 class MotionProcessor {
 public:
