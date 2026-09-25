@@ -1,5 +1,4 @@
 #include "TouchTapDetector.h"
-#include "Config.h"
 
 TouchTapDetector *TouchTapDetector::s_instance = nullptr;
 
@@ -29,7 +28,7 @@ uint8_t TouchTapDetector::update() {
 
     const bool raw = rawValue() < Config::TOUCH_THRESHOLD;
     if (raw == _candidate) {
-      if (_debounce < 255) _debounce++;
+      if (_debounce < UINT8_MAX) _debounce++;
     } else {
       _candidate = raw;
       _debounce = 1;
