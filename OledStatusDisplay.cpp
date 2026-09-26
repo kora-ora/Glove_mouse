@@ -59,7 +59,7 @@ void OledStatusDisplay::update(bool connected, int activeSlot, bool paused, cons
 
   const uint32_t now = millis();
   const bool stateChanged = (connected != _lastConnected || activeSlot != _lastSlot || paused != _lastPaused);
-  const bool isMoving = (packet.dx != 0 || packet.dy != 0);
+  const bool isMoving = (packet.dx != 0 || packet.dy != 0 || packet.wheel != 0);
 
   // ขณะที่เมาส์กำลังเคลื่อนไหว (isMoving): งดส่ง Framebuffer 1KB ผ่าน I2C (~25ms) ชั่วคราว
   // เพื่อไม่ให้ I2C ไปบล็อกลูป 100Hz ของ MPU6050 จนเคอร์เซอร์สะดุด/กระตุก (Micro-stuttering)

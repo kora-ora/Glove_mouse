@@ -152,13 +152,23 @@ void TaskSensor(void *pvParameters) {
     if (!readSuccess) continue;
 
     MousePacket packet = motion.process(gx, gy, gz, mpu);
-    bool hasMoved = (packet.dx != 0 || packet.dy != 0);
+    packet.buttons |= touchClick.update();
+
+    if (touchClick.isBothPressed()) {
+      // โหมด 2-finger scroll: ล็อกตำแหน่งเคอร์เซอร์ X/Y และปุ่มคลิก แปลงการก้ม-เงย (gy) เป็นลูกกลิ้ง wheel
+      packet.dx = 0;
+      packet.dy = 0;
+      packet.buttons = 0;
+      packet.wheel = motion.processScroll(gy, mpu);
+    } else {
+      motion.resetScroll();
+    }
+
+    bool hasMoved = (packet.dx != 0 || packet.dy != 0 || packet.wheel != 0);
 
     // กรณีโหมดทำงานปกติ
     gDebugGx = gx; gDebugGy = gy; gDebugGz = gz;
     gDebugDx = packet.dx; gDebugDy = packet.dy;
-
-    packet.buttons |= touchClick.update();
     gDebugButtons = packet.buttons;
 
     oled.update(hidMouse.isConnected(), hidMouse.activeSlot(), hidMouse.isPaused(), packet);

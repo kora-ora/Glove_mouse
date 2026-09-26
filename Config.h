@@ -30,6 +30,8 @@ namespace Config {
   constexpr float    DEADZONE           = 0.06f;
   constexpr bool     INVERT_X           = false;
   constexpr bool     INVERT_Y           = true;
+  constexpr float    SCROLL_SENSITIVITY = 15.0f;  // ความไวในการ scroll ตาม gyro (tick สะสม)
+  constexpr bool     INVERT_SCROLL      = false;  // false = ก้มมือลงเลื่อนลง, เงยมือขึ้นเลื่อนขึ้น
 
   // 3. Calibration
   constexpr uint16_t CALIB_SAMPLES       = 200;

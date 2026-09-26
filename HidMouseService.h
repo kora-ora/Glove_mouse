@@ -45,7 +45,7 @@ private:
     }
   };
 
-  bool sendReport(uint16_t connHandle, uint8_t buttons, int8_t dx, int8_t dy);
+  bool sendReport(uint16_t connHandle, uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel = 0);
   int  findFreeSlot() const;
   int  pickConnectedSlot(int preferred = -1) const;
   int  slotOfHandle(uint16_t connHandle) const;

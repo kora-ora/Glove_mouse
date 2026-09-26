@@ -34,6 +34,11 @@ uint8_t TouchClickManager::update() {
   updateFinger(_indexFinger, leftTouched);
   updateFinger(_middleFinger, rightTouched);
 
+  // เมื่อแตะ 2 นิ้วพร้อมกัน เข้าสู่โหมด Scroll: ไม่ส่งคลิกซ้ายหรือขวา
+  if (_indexFinger.pressed && _middleFinger.pressed) {
+    return 0;
+  }
+
   uint8_t buttons = 0;
   if (_indexFinger.pressed) buttons |= TOUCH_BUTTON_LEFT;
   if (_middleFinger.pressed) buttons |= TOUCH_BUTTON_RIGHT;

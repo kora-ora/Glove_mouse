@@ -2,7 +2,7 @@
 #include <NimBLEDevice.h>
 #include <NimBLEHIDDevice.h>
 
-// Report Map: เมาส์ 3 ปุ่ม + X/Y relative 8 บิต
+// Report Map: เมาส์ 3 ปุ่ม + X/Y/Wheel relative 8 บิต
 static const uint8_t kReportMap[] = {
   0x05, 0x01, 0x09, 0x02, 0xA1, 0x01,
   0x85, 0x01,
@@ -11,9 +11,9 @@ static const uint8_t kReportMap[] = {
   0x15, 0x00, 0x25, 0x01,
   0x95, 0x03, 0x75, 0x01, 0x81, 0x02,
   0x95, 0x01, 0x75, 0x05, 0x81, 0x03,
-  0x05, 0x01, 0x09, 0x30, 0x09, 0x31,
+  0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x38,
   0x15, 0x81, 0x25, 0x7F,
-  0x75, 0x08, 0x95, 0x02, 0x81, 0x06,
+  0x75, 0x08, 0x95, 0x03, 0x81, 0x06,
   0xC0, 0xC0
 };
 
@@ -105,8 +105,13 @@ void HidMouseService::restartAdvertising() {
 // ==============================================================================
 // 3. Mouse Input & Host Switching
 // ==============================================================================
-bool HidMouseService::sendReport(uint16_t connHandle, uint8_t buttons, int8_t dx, int8_t dy) {
-  const uint8_t report[3] = {buttons, static_cast<uint8_t>(dx), static_cast<uint8_t>(dy)};
+bool HidMouseService::sendReport(uint16_t connHandle, uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel) {
+  const uint8_t report[4] = {
+    buttons,
+    static_cast<uint8_t>(dx),
+    static_cast<uint8_t>(dy),
+    static_cast<uint8_t>(wheel)
+  };
   const int slot = slotOfHandle(connHandle);
   if (slot >= 0) _slots[slot].lastTxMs = millis();
   return _input->notify(report, sizeof(report), connHandle);
@@ -115,7 +120,7 @@ bool HidMouseService::sendReport(uint16_t connHandle, uint8_t buttons, int8_t dx
 void HidMouseService::pause() {
   if (_paused) return;
   int slot = pickConnectedSlot(_active);
-  if (slot >= 0) sendReport(_slots[slot].handle, 0, 0, 0);
+  if (slot >= 0) sendReport(_slots[slot].handle, 0, 0, 0, 0);
   _lastButtons = 0;
   _paused = true;
   Serial.println("⏸️ [STATE] หยุดทำงาน");
@@ -138,7 +143,7 @@ bool HidMouseService::send(const MousePacket &packet) {
     Serial.printf("🔁 [BLE] Host หลุด -> Active: %c\n", 'A' + slot);
   }
 
-  const bool ok = sendReport(_slots[slot].handle, packet.buttons, packet.dx, packet.dy);
+  const bool ok = sendReport(_slots[slot].handle, packet.buttons, packet.dx, packet.dy, packet.wheel);
   if (ok) _lastButtons = packet.buttons;
   return ok;
 }

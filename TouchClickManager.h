@@ -26,6 +26,7 @@ public:
   bool isTouchedNow() const { return _indexFinger.pressed || _middleFinger.pressed; }
   bool isLeftPressed() const { return _indexFinger.pressed; }
   bool isRightPressed() const { return _middleFinger.pressed; }
+  bool isBothPressed() const { return _indexFinger.pressed && _middleFinger.pressed; }
 
 private:
   struct FingerTouchState {
