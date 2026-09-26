@@ -13,7 +13,9 @@
 #include "OledStatusDisplay.h"
 #include "SleepController.h"
 
-// Instances
+// ==============================================================================
+// 1. Hardware Instances & RTOS Handles
+// ==============================================================================
 MPU6050Driver     mpu;
 MotionProcessor   motion;
 TouchClickManager touchClick;
@@ -25,17 +27,19 @@ Buzzer            buzzer;
 OledStatusDisplay oled;
 SleepController   sleepCtl;
 
-// FreeRTOS Handles
 QueueHandle_t     mouseQueue       = nullptr;
 TaskHandle_t      taskSensorHandle = nullptr;
 TaskHandle_t      taskBleHandle    = nullptr;
 SemaphoreHandle_t mpuSemaphore     = nullptr;
 
-// Debug variables
+// Debug Variables
 volatile float   gDebugGx = 0, gDebugGy = 0, gDebugGz = 0;
 volatile int8_t  gDebugDx = 0, gDebugDy = 0;
 volatile uint8_t gDebugButtons = 0;
 
+// ==============================================================================
+// 2. Hardware Interrupts & Bus Recovery
+// ==============================================================================
 void IRAM_ATTR onMPUDataReady() {
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   xSemaphoreGiveFromISR(mpuSemaphore, &xHigherPriorityTaskWoken);
@@ -49,73 +53,129 @@ void recoverI2CBus() {
   Wire.setClock(Config::I2C_CLOCK_SPEED);
 }
 
-// Task 1: Sensor & Motion (Core 1)
-void TaskSensor(void *pvParameters) {
-  uint8_t lastButtons = 0;
-  uint8_t i2cFailStreak = 0;
-  bool recoveryAttempted = false;
-  Serial.println("🟢 [TaskSensor] ทำงานบน Core " + String(xPortGetCoreID()));
+// จัดการตัวนับและการกู้คืนเมื่อ I2C ล้มเหลว
+void handleI2CError(bool success) {
+  static uint8_t failStreak = 0;
+  static bool recoveryAttempted = false;
 
-  for (;;) {
-    if (xSemaphoreTake(mpuSemaphore, portMAX_DELAY) == pdTRUE) {
-      bool touchedNow = touchTap.isTouchedNow() || touchClick.isTouchedNow();
-      bool cycleOk = true;
+  if (success) {
+    failStreak = 0;
+    recoveryAttempted = false;
+    return;
+  }
 
-      if (sleepCtl.isIdle() && !touchedNow) {
-        float gx, gy, gz;
-        if (mpu.readGyro(gx, gy, gz)) {
-          MousePacket packet = motion.process(gx, gy, gz, mpu);
-          if (packet.dx != 0 || packet.dy != 0) {
-            sleepCtl.tick(true, false);
-          }
-        }
-      } else {
-        MousePacket packet = {0, 0, 0};
+  if (++failStreak >= Config::I2C_FAIL_THRESHOLD && !recoveryAttempted) {
+    Serial.println("⚠️ [I2C] พลาดต่อเนื่อง กำลัง reset bus...");
+    recoverI2CBus();
+    recoveryAttempted = true;
+    failStreak = 0;
+  } else if (failStreak >= Config::I2C_RESTART_THRESHOLD) {
+    Serial.println("❌ [I2C] ยังพลาดต่อเนื่อง กำลัง restart บอร์ด...");
+    Serial.flush();
+    ESP.restart();
+  }
+}
 
-        float gx, gy, gz;
-        if (mpu.readGyro(gx, gy, gz)) {
-          packet = motion.process(gx, gy, gz, mpu);
-          gDebugGx = gx; gDebugGy = gy; gDebugGz = gz;
-          gDebugDx = packet.dx; gDebugDy = packet.dy;
-        } else {
-          cycleOk = false;
-        }
+// ==============================================================================
+// 3. Helper Functions for Tasks
+// ==============================================================================
 
-        packet.buttons |= touchClick.update();
-        gDebugButtons = packet.buttons;
-
-        oled.update(hidMouse.isConnected(), hidMouse.activeSlot(), hidMouse.isPaused(), packet);
-
-        bool buttonsChanged = (packet.buttons != lastButtons);
-        if (packet.dx != 0 || packet.dy != 0 || buttonsChanged) {
-          if (xQueueSend(mouseQueue, &packet, 0) == pdTRUE) {
-            lastButtons = packet.buttons;
-          }
-        }
-
-        sleepCtl.tick(packet.dx != 0 || packet.dy != 0 || buttonsChanged, touchedNow);
-      }
-
-      if (cycleOk) {
-        i2cFailStreak = 0;
-        recoveryAttempted = false;
-      } else if (++i2cFailStreak >= Config::I2C_FAIL_THRESHOLD) {
-        if (!recoveryAttempted) {
-          Serial.println("⚠️ [I2C] พลาดต่อเนื่อง กำลัง reset bus...");
-          recoverI2CBus();
-          recoveryAttempted = true;
-          i2cFailStreak = 0;
-        } else if (i2cFailStreak >= Config::I2C_RESTART_THRESHOLD) {
-          Serial.println("❌ [I2C] ยังพลาดต่อเนื่อง กำลัง restart บอร์ด...");
-          Serial.flush();
-          ESP.restart();
-        }
-      }
+// จัดการคำสั่ง Serial CLI เพื่อลดความซับซ้อนในลูปหลักของ BLE
+void handleSerialCommands(uint8_t &taps) {
+  while (Serial.available()) {
+    char cmd = Serial.read();
+    switch (cmd) {
+      case 's':
+        taps = 2;
+        break;
+      case 'b':
+        Serial.println(NimBLEDevice::deleteAllBonds() ? "🧹 [BLE] ล้าง bond แล้ว" : "⚠️ ล้าง bond ไม่สำเร็จ");
+        break;
+      case 't':
+        Serial.printf("👆 [TOUCH] State(T7/P27)=%lu | Left(T8/P%d)=%lu | Right(T9/P%d)=%lu\n",
+                      (unsigned long)touchTap.rawValue(),
+                      Config::PIN_TOUCH_INDEX, (unsigned long)touchClick.rawIndex(),
+                      Config::PIN_TOUCH_MIDDLE, (unsigned long)touchClick.rawMiddle());
+        break;
+      case 'g':
+        Serial.printf("🕹️ [GYRO] gx=%.4f gy=%.4f gz=%.4f -> dx=%d dy=%d buttons=0x%02X paused=%s\n",
+                      gDebugGx, gDebugGy, gDebugGz, gDebugDx, gDebugDy, gDebugButtons, 
+                      hidMouse.isPaused() ? "ใช่" : "ไม่");
+        break;
     }
   }
 }
 
-// Task 2: BLE Mouse (Core 0)
+// จัดการ Action จากการแตะคำสั่งลัด (Single / Double Tap)
+void handleTapGestures(uint8_t taps) {
+  if (taps == 1) {
+    buzzer.beep(Config::BUZZER_TAP_MS);
+    if (hidMouse.isPaused()) {
+      hidMouse.resume();
+    } else {
+      hidMouse.pause();
+    }
+  } else if (taps >= 2) {
+    buzzer.beep(Config::BUZZER_SWITCH_MS);
+    hidMouse.switchHost();
+  }
+}
+
+// ==============================================================================
+// 4. FreeRTOS Tasks
+// ==============================================================================
+
+// Task 1: Sensor & Motion (Core 1)
+void TaskSensor(void *pvParameters) {
+  uint8_t lastButtons = 0;
+  Serial.println("🟢 [TaskSensor] ทำงานบน Core " + String(xPortGetCoreID()));
+
+  for (;;) {
+    // Guard clause: หากไม่มีสัญญาณ interrupt ให้ข้ามรอบไป
+    if (xSemaphoreTake(mpuSemaphore, portMAX_DELAY) != pdTRUE) {
+      continue;
+    }
+
+    bool touchedNow = touchTap.isTouchedNow() || touchClick.isTouchedNow();
+
+    // กรณีอยู่ในสถานะ Idle และไม่มีการแตะสัมผัส: ข้ามการประมวลผลทันที (Touch-Only Wake)
+    if (sleepCtl.isIdle() && !touchedNow) {
+      float dummyGx, dummyGy, dummyGz;
+      mpu.readGyro(dummyGx, dummyGy, dummyGz);
+      continue;
+    }
+
+    float gx, gy, gz;
+    bool readSuccess = mpu.readGyro(gx, gy, gz);
+
+    handleI2CError(readSuccess);
+    if (!readSuccess) continue;
+
+    MousePacket packet = motion.process(gx, gy, gz, mpu);
+    bool hasMoved = (packet.dx != 0 || packet.dy != 0);
+
+    // กรณีโหมดทำงานปกติ
+    gDebugGx = gx; gDebugGy = gy; gDebugGz = gz;
+    gDebugDx = packet.dx; gDebugDy = packet.dy;
+
+    packet.buttons |= touchClick.update();
+    gDebugButtons = packet.buttons;
+
+    oled.update(hidMouse.isConnected(), hidMouse.activeSlot(), hidMouse.isPaused(), packet);
+
+    bool buttonsChanged = (packet.buttons != lastButtons);
+    if (hasMoved || buttonsChanged) {
+      if (xQueueSend(mouseQueue, &packet, 0) == pdTRUE) {
+        lastButtons = packet.buttons;
+      }
+    }
+
+    // Touch-Only Wake: wakeTrigger = touchedNow, keepAliveTrigger = hasMoved || buttonsChanged
+    sleepCtl.tick(touchedNow, hasMoved || buttonsChanged);
+  }
+}
+
+// Task 2: BLE Mouse & System Services (Core 0)
 void TaskBleMouse(void *pvParameters) {
   Serial.println("🔵 [TaskBleMouse] ทำงานบน Core " + String(xPortGetCoreID()));
 
@@ -125,51 +185,28 @@ void TaskBleMouse(void *pvParameters) {
   MousePacket packet;
 
   for (;;) {
+    // ดึงและส่งข้อมูลเมาส์ออกจากคิวให้หมดเพื่อลด Latency
     if (xQueueReceive(mouseQueue, &packet, pdMS_TO_TICKS(10)) == pdTRUE) {
-      hidMouse.send(packet);
-      while (xQueueReceive(mouseQueue, &packet, 0) == pdTRUE) {
+      do {
         hidMouse.send(packet);
-      }
+      } while (xQueueReceive(mouseQueue, &packet, 0) == pdTRUE);
     }
 
     uint8_t taps = touchTap.update();
-    while (Serial.available()) {
-      char cmd = Serial.read();
-      if (cmd == 's') {
-        taps = 2;
-      } else if (cmd == 'b') {
-        Serial.println(NimBLEDevice::deleteAllBonds() ? "🧹 [BLE] ล้าง bond แล้ว" : "⚠️ ล้าง bond ไม่สำเร็จ");
-      } else if (cmd == 't') {
-        Serial.printf("👆 [TOUCH] State(T7/P27)=%lu | Left(T8/P%d)=%lu | Right(T9/P%d)=%lu\n",
-                      (unsigned long)touchTap.rawValue(),
-                      Config::PIN_TOUCH_INDEX, (unsigned long)touchClick.rawIndex(),
-                      Config::PIN_TOUCH_MIDDLE, (unsigned long)touchClick.rawMiddle());
-      } else if (cmd == 'g') {
-        Serial.printf("🕹️ [GYRO] gx=%.4f gy=%.4f gz=%.4f -> dx=%d dy=%d buttons=0x%02X paused=%s\n",
-                      gDebugGx, gDebugGy, gDebugGz, gDebugDx, gDebugDy, gDebugButtons, hidMouse.isPaused() ? "ใช่" : "ไม่");
-      }
-    }
+    handleSerialCommands(taps);
+    handleTapGestures(taps);
 
-    if (taps == 1) {
-      buzzer.beep(Config::BUZZER_TAP_MS);
-      if (hidMouse.isPaused()) hidMouse.resume(); else hidMouse.pause();
-    } else if (taps >= 2) {
-      buzzer.beep(Config::BUZZER_SWITCH_MS);
-      hidMouse.switchHost();
-    }
-
+    // บริการเบื้องหลัง
     hidMouse.service();
     clipboard.service();
     buzzer.service();
   }
 }
 
-void setup() {
-  Serial.begin(115200);
-  delay(500);
-
-  Serial.println("\n=== ESP32 FreeRTOS Glove Air Mouse ===");
-
+// ==============================================================================
+// 5. System Initialization
+// ==============================================================================
+void initHardware() {
   Wire.begin(Config::PIN_SDA, Config::PIN_SCL);
   Wire.setClock(Config::I2C_CLOCK_SPEED);
 
@@ -184,26 +221,23 @@ void setup() {
   mpu.calibrate();
   mpu.enableInterrupt();
 
-  mpuSemaphore = xSemaphoreCreateBinary();
-  if (mpuSemaphore == nullptr) {
-    Serial.println("❌ สร้าง mpuSemaphore ไม่สำเร็จ");
-    while (1) { delay(1000); }
-  }
-  pinMode(Config::INTERRUPT_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(Config::INTERRUPT_PIN), onMPUDataReady, RISING);
-
   touchClick.begin(Config::PIN_TOUCH_INDEX, Config::PIN_TOUCH_MIDDLE);
-
   touchTap.begin(Config::PIN_TOUCH);
   buzzer.begin(Config::PIN_BUZZER, Config::BUZZER_ACTIVE_HIGH);
-
   sleepCtl.begin(&oled);
+}
 
-  mouseQueue = xQueueCreate(Config::QUEUE_LENGTH, sizeof(MousePacket));
-  if (mouseQueue == nullptr) {
-    Serial.println("❌ สร้าง mouseQueue ไม่สำเร็จ");
+void initRTOS() {
+  mpuSemaphore = xSemaphoreCreateBinary();
+  mouseQueue   = xQueueCreate(Config::QUEUE_LENGTH, sizeof(MousePacket));
+
+  if (!mpuSemaphore || !mouseQueue) {
+    Serial.println("❌ สร้าง RTOS Primitives ไม่สำเร็จ");
     while (1) { delay(1000); }
   }
+
+  pinMode(Config::INTERRUPT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(Config::INTERRUPT_PIN), onMPUDataReady, RISING);
 
   xTaskCreatePinnedToCore(
     TaskSensor, "SensorTask", Config::STACK_SENSOR_TASK,
@@ -214,6 +248,15 @@ void setup() {
     TaskBleMouse, "BleMouseTask", Config::STACK_BLE_TASK,
     nullptr, Config::PRIORITY_BLE, &taskBleHandle, Config::CORE_BLE_TASK
   );
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+  Serial.println("\n=== ESP32 FreeRTOS Glove Air Mouse ===");
+
+  initHardware();
+  initRTOS();
 
   Serial.println("🚀 ระบบ FreeRTOS เริ่มต้นเสร็จสมบูรณ์");
 }

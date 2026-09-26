@@ -2,7 +2,7 @@
 #include <NimBLEDevice.h>
 #include <NimBLEHIDDevice.h>
 
-// Report Map: เมาส์ 3 ปุ่ม + X/Y แบบ relative 8 บิต (Report ID 1)
+// Report Map: เมาส์ 3 ปุ่ม + X/Y relative 8 บิต
 static const uint8_t kReportMap[] = {
   0x05, 0x01, 0x09, 0x02, 0xA1, 0x01,
   0x85, 0x01,
@@ -17,14 +17,28 @@ static const uint8_t kReportMap[] = {
   0xC0, 0xC0
 };
 
+static const char *describeReason(int reason) {
+  switch (reason) {
+    case 520: return "supervision timeout";
+    case 531: return "host disconnected";
+    case 533: return "host resource exhausted";
+    case 534: return "local host terminated";
+    case 573: return "MIC failure (re-pair required)";
+    case 574: return "connection failed to establish";
+    default:  return "unknown error";
+  }
+}
+
+// ==============================================================================
+// 1. Initialization
+// ==============================================================================
 void HidMouseService::begin(const char *deviceName, void (*beforeStart)(NimBLEServer *)) {
-  for (uint8_t i = 0; i < Config::MAX_HOSTS; i++) _handle[i] = NO_CONN;
+  for (auto &slot : _slots) slot.reset();
 
   NimBLEDevice::init(deviceName);
   NimBLEDevice::setPower(Config::BLE_TX_POWER_DBM);
   Serial.printf("📡 [BLE] Address: %s\n", NimBLEDevice::getAddress().toString().c_str());
 
-  // Just Works legacy pairing
   NimBLEDevice::setSecurityAuth(true, false, false);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
@@ -53,29 +67,55 @@ void HidMouseService::begin(const char *deviceName, void (*beforeStart)(NimBLESe
   restartAdvertising();
 }
 
-bool HidMouseService::isConnected() const {
-  return pickConnectedSlot(-1) >= 0;
-}
-
-int HidMouseService::pickConnectedSlot(int preferred) const {
-  if (preferred >= 0 && _handle[preferred] != NO_CONN) return preferred;
-  for (int i = 0; i < Config::MAX_HOSTS; i++) {
-    if (_handle[i] != NO_CONN) return i;
+// ==============================================================================
+// 2. Slot Management Helpers
+// ==============================================================================
+int HidMouseService::findFreeSlot() const {
+  for (int i = 0; i < Config::MAX_HOSTS; ++i) {
+    if (!_slots[i].isConnected()) return i;
   }
   return -1;
 }
 
+int HidMouseService::slotOfHandle(uint16_t connHandle) const {
+  for (int i = 0; i < Config::MAX_HOSTS; ++i) {
+    if (_slots[i].handle == connHandle) return i;
+  }
+  return -1;
+}
+
+int HidMouseService::pickConnectedSlot(int preferred) const {
+  if (preferred >= 0 && _slots[preferred].isConnected()) return preferred;
+  for (int i = 0; i < Config::MAX_HOSTS; ++i) {
+    if (_slots[i].isConnected()) return i;
+  }
+  return -1;
+}
+
+bool HidMouseService::isConnected() const {
+  return pickConnectedSlot() >= 0;
+}
+
+void HidMouseService::restartAdvertising() {
+  if (_server->getConnectedCount() < Config::MAX_HOSTS) {
+    NimBLEDevice::getAdvertising()->start();
+  }
+}
+
+// ==============================================================================
+// 3. Mouse Input & Host Switching
+// ==============================================================================
 bool HidMouseService::sendReport(uint16_t connHandle, uint8_t buttons, int8_t dx, int8_t dy) {
   const uint8_t report[3] = {buttons, static_cast<uint8_t>(dx), static_cast<uint8_t>(dy)};
   const int slot = slotOfHandle(connHandle);
-  if (slot >= 0) _lastTxMs[slot] = millis();
+  if (slot >= 0) _slots[slot].lastTxMs = millis();
   return _input->notify(report, sizeof(report), connHandle);
 }
 
 void HidMouseService::pause() {
   if (_paused) return;
   int slot = pickConnectedSlot(_active);
-  if (slot >= 0) sendReport(_handle[slot], 0, 0, 0);
+  if (slot >= 0) sendReport(_slots[slot].handle, 0, 0, 0);
   _lastButtons = 0;
   _paused = true;
   Serial.println("⏸️ [STATE] หยุดทำงาน");
@@ -92,11 +132,13 @@ bool HidMouseService::send(const MousePacket &packet) {
 
   int slot = pickConnectedSlot(_active);
   if (slot < 0) return false;
+
   if (slot != _active) {
     _active = slot;
     Serial.printf("🔁 [BLE] Host หลุด -> Active: %c\n", 'A' + slot);
   }
-  const bool ok = sendReport(_handle[slot], packet.buttons, packet.dx, packet.dy);
+
+  const bool ok = sendReport(_slots[slot].handle, packet.buttons, packet.dx, packet.dy);
   if (ok) _lastButtons = packet.buttons;
   return ok;
 }
@@ -106,151 +148,120 @@ bool HidMouseService::switchHost() {
   if (current < 0) return false;
 
   int next = -1;
-  for (int i = 1; i < Config::MAX_HOSTS; i++) {
+  for (int i = 1; i < Config::MAX_HOSTS; ++i) {
     int candidate = (current + i) % Config::MAX_HOSTS;
-    if (_handle[candidate] != NO_CONN) { next = candidate; break; }
+    if (_slots[candidate].isConnected()) {
+      next = candidate;
+      break;
+    }
   }
+
   if (next < 0) {
     Serial.println("⚠️ [BLE] ไม่มีเครื่องอื่นให้สลับ");
     return false;
   }
 
-  sendReport(_handle[current], 0, 0, 0);
+  sendReport(_slots[current].handle, 0, 0, 0);
   _lastButtons = 0;
   _active = next;
   Serial.printf("🔀 [BLE] Active: %c\n", 'A' + next);
   return true;
 }
 
-void HidMouseService::restartAdvertising() {
-  if (_server->getConnectedCount() < Config::MAX_HOSTS) {
-    NimBLEDevice::getAdvertising()->start();
+// ==============================================================================
+// 4. Background Services (Keep-alive, Adv, Parameters)
+// ==============================================================================
+void HidMouseService::serviceKeepAlive(uint32_t now) {
+  if (Config::HID_KEEPALIVE_MS == 0) return;
+
+  for (int i = 0; i < Config::MAX_HOSTS; ++i) {
+    if (!_slots[i].isConnected()) continue;
+    if (now - _slots[i].lastTxMs < Config::HID_KEEPALIVE_MS) continue;
+
+    uint8_t buttons = (i == _active && !_paused) ? _lastButtons : 0;
+    sendReport(_slots[i].handle, buttons, 0, 0);
   }
 }
 
-int HidMouseService::slotOfHandle(uint16_t connHandle) const {
-  for (int i = 0; i < Config::MAX_HOSTS; i++) {
-    if (_handle[i] == connHandle) return i;
-  }
-  return -1;
-}
+void HidMouseService::serviceAdvertisingCheck(uint32_t now) {
+  if (now - _lastAdvCheckMs < Config::BLE_ADV_CHECK_MS) return;
+  _lastAdvCheckMs = now;
 
-static const char *describeReason(int reason) {
-  switch (reason) {
-    case 520: return "supervision timeout";
-    case 531: return "host disconnected";
-    case 533: return "host resource exhausted";
-    case 534: return "local host terminated";
-    case 573: return "MIC failure (re-pair required)";
-    case 574: return "connection failed to establish";
-    default:  return "";
+  NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
+  if (_server->getConnectedCount() < Config::MAX_HOSTS && !adv->isAdvertising()) {
+    adv->start();
   }
 }
 
-void HidMouseService::service() {
-  const uint32_t now = millis();
+void HidMouseService::serviceConnectionParams(uint32_t now) {
+  for (int i = 0; i < Config::MAX_HOSTS; ++i) {
+    if (!_slots[i].isConnected() || _slots[i].paramsChecked) continue;
+    if (now - _slots[i].connectedAtMs < Config::BLE_PARAM_CHECK_DELAY_MS) continue;
 
-  // HID Keep-alive
-  if (Config::HID_KEEPALIVE_MS > 0) {
-    for (int i = 0; i < Config::MAX_HOSTS; i++) {
-      if (_handle[i] == NO_CONN || now - _lastTxMs[i] < Config::HID_KEEPALIVE_MS) continue;
-      const uint8_t buttons = (i == _active && !_paused) ? _lastButtons : 0;
-      sendReport(_handle[i], buttons, 0, 0);
-    }
-  }
-
-  // ตรวจสอบและ restart advertise หากยังมีช่องว่าง
-  if (now - _lastAdvCheckMs >= Config::BLE_ADV_CHECK_MS) {
-    _lastAdvCheckMs = now;
-    NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
-    if (_server->getConnectedCount() < Config::MAX_HOSTS && !adv->isAdvertising()) {
-      adv->start();
-    }
-  }
-
-  // ปรับ connection interval ให้อยู่ในช่วงที่เหมาะสม และเปิด Slave Latency
-  for (int i = 0; i < Config::MAX_HOSTS; i++) {
-    if (_handle[i] == NO_CONN || _paramsChecked[i]) continue;
-    if (now - _connectedAtMs[i] < Config::BLE_PARAM_CHECK_DELAY_MS) continue;
-    _paramsChecked[i] = true;
-
-    NimBLEConnInfo info = _server->getPeerInfoByHandle(_handle[i]);
+    _slots[i].paramsChecked = true;
+    NimBLEConnInfo info = _server->getPeerInfoByHandle(_slots[i].handle);
     const uint16_t interval = info.getConnInterval();
     if (interval == 0) continue;
 
-    Serial.printf("📶 [BLE] Host %c interval=%.1f ms latency=%u timeout=%u ms\n", 'A' + i,
-                  interval * 1.25f, info.getConnLatency(), info.getConnTimeout() * 10);
+    Serial.printf("📶 [BLE] Host %c interval=%.1f ms latency=%u timeout=%u ms\n",
+                  'A' + i, interval * 1.25f, info.getConnLatency(), info.getConnTimeout() * 10);
+
     if (interval < Config::BLE_CONN_INTERVAL_MIN || interval > Config::BLE_CONN_INTERVAL_MAX) {
-      _server->updateConnParams(_handle[i], Config::BLE_CONN_INTERVAL_MIN, Config::BLE_CONN_INTERVAL_MAX,
+      _server->updateConnParams(_slots[i].handle,
+                                Config::BLE_CONN_INTERVAL_MIN, Config::BLE_CONN_INTERVAL_MAX,
                                 Config::BLE_CONN_LATENCY, Config::BLE_CONN_TIMEOUT);
     }
   }
 }
 
+void HidMouseService::service() {
+  const uint32_t now = millis();
+  serviceKeepAlive(now);
+  serviceAdvertisingCheck(now);
+  serviceConnectionParams(now);
+}
+
+// ==============================================================================
+// 5. Server Callbacks
+// ==============================================================================
 void HidMouseService::onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) {
-  NimBLEAddress addr = connInfo.getIdAddress();
-  const bool addrKnown = !addr.isNull();
-
-  int slot = -1;
-  if (addrKnown) {
-    for (int i = 0; i < Config::MAX_HOSTS; i++) {
-      if (_hasAddr[i] && _addr[i] == addr && _handle[i] == NO_CONN) { slot = i; break; }
-    }
-    for (int i = 0; slot < 0 && i < Config::MAX_HOSTS; i++) {
-      if (_hasAddr[i] && _addr[i] == addr && _handle[i] != NO_CONN) {
-        server->disconnect(_handle[i]);
-        slot = i;
-      }
-    }
-  }
-  for (int i = 0; slot < 0 && i < Config::MAX_HOSTS; i++) {
-    if (_handle[i] == NO_CONN) slot = i;
-  }
-
+  int slot = findFreeSlot();
   if (slot < 0) {
-    Serial.printf("⚠️ [BLE] ปฏิเสธการเชื่อมต่อเกิน %u เครื่อง (%s)\n", Config::MAX_HOSTS, addr.toString().c_str());
+    Serial.printf("⚠️ [BLE] ปฏิเสธการเชื่อมต่อ เกินโควตา %u เครื่อง\n", Config::MAX_HOSTS);
     server->disconnect(connInfo);
     return;
   }
 
-  if (addrKnown) {
-    _addr[slot] = addr;
-    _hasAddr[slot] = true;
-  }
-  bool otherConnected = pickConnectedSlot(-1) >= 0;
-  _connectedAtMs[slot] = millis();
-  _lastTxMs[slot] = millis();
-  _paramsChecked[slot] = false;
-  _handle[slot] = connInfo.getConnHandle();
-  if (!otherConnected) _active = slot;
-  Serial.printf("✅ [BLE] Host %c ต่อแล้ว (%s)\n", 'A' + slot, addr.toString().c_str());
+  bool isFirstDevice = (pickConnectedSlot() < 0);
+
+  _slots[slot].handle        = connInfo.getConnHandle();
+  _slots[slot].connectedAtMs = millis();
+  _slots[slot].lastTxMs      = millis();
+  _slots[slot].paramsChecked = false;
+
+  if (isFirstDevice) _active = slot;
+
+  Serial.printf("✅ [BLE] Host %c ต่อแล้ว (Handle: %u)\n", 'A' + slot, _slots[slot].handle);
 }
 
 void HidMouseService::onAuthenticationComplete(NimBLEConnInfo &connInfo) {
   int slot = slotOfHandle(connInfo.getConnHandle());
-  if (slot >= 0) {
-    NimBLEAddress idAddr = connInfo.getIdAddress();
-    if (!idAddr.isNull()) {
-      _addr[slot] = idAddr;
-      _hasAddr[slot] = true;
-    }
-  }
-  Serial.printf("🔐 [BLE] Host %c เข้ารหัส=%s bonded=%s\n", slot >= 0 ? 'A' + slot : '?',
-                connInfo.isEncrypted() ? "ใช่" : "ไม่", connInfo.isBonded() ? "ใช่" : "ไม่");
+  Serial.printf("🔐 [BLE] Host %c เข้ารหัส=%s bonded=%s\n",
+                slot >= 0 ? 'A' + slot : '?',
+                connInfo.isEncrypted() ? "ใช่" : "ไม่",
+                connInfo.isBonded() ? "ใช่" : "ไม่");
 }
 
 void HidMouseService::onDisconnect(NimBLEServer *server, NimBLEConnInfo &connInfo, int reason) {
-  for (int i = 0; i < Config::MAX_HOSTS; i++) {
-    if (_handle[i] == connInfo.getConnHandle()) {
-      _handle[i] = NO_CONN;
-      Serial.printf("❌ [BLE] Host %c หลุด (reason %d: %s)\n", 'A' + i, reason, describeReason(reason));
+  int slot = slotOfHandle(connInfo.getConnHandle());
+  if (slot >= 0) {
+    _slots[slot].reset();
+    Serial.printf("❌ [BLE] Host %c หลุด (reason %d: %s)\n", 'A' + slot, reason, describeReason(reason));
 
-      // ถ้าเครื่อง active หลุด ให้สลับไปเครื่องที่ยังต่ออยู่ทันที
-      if (_active == i) {
-        int nextSlot = pickConnectedSlot(-1);
-        _active = (nextSlot >= 0) ? nextSlot : 0;
-        Serial.printf("🔀 [BLE] Active host หลุด -> ย้ายไป Active: %c\n", 'A' + _active);
-      }
+    if (_active == slot) {
+      int next = pickConnectedSlot();
+      _active = (next >= 0) ? next : 0;
+      Serial.printf("🔀 [BLE] Active host หลุด -> ย้ายไป Active: %c\n", 'A' + _active);
     }
   }
   restartAdvertising();

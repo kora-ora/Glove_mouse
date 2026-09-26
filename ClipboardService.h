@@ -34,8 +34,17 @@ private:
   };
 
   void sendControl(uint16_t connHandle, PacketType type, uint8_t msgId, ClipErr err = CLIP_OK);
-  void updateStatus();
+  void updateStatus(uint16_t skipConn = BLE_HS_CONN_HANDLE_NONE);
   void startGet(uint16_t connHandle, uint16_t mtu, uint8_t msgId);
+
+  // Handlers สำหรับแพ็กเก็ตขาเข้า (RX)
+  void handleStart(uint16_t conn, uint8_t msgId, const uint8_t *payload, size_t len);
+  void handleData(uint16_t conn, uint8_t msgId, uint16_t seq, const uint8_t *data, size_t len);
+  void handleEnd(uint16_t conn, uint8_t msgId);
+  void handleClear(uint16_t conn, uint8_t msgId);
+
+  // ฟังก์ชันย่อยสำหรับส่ง Chunk ถัดไป (TX)
+  bool sendNextChunk();
 
   NimBLEServer         *_server = nullptr;
   NimBLECharacteristic *_tx = nullptr;
@@ -43,6 +52,8 @@ private:
   ClipboardStore        _store;
   SemaphoreHandle_t     _txMutex = nullptr;
   Tx                    _send;
+  uint16_t              _writerConn = BLE_HS_CONN_HANDLE_NONE;
+  uint32_t              _writerStartMs = 0;
 };
 
 #endif // CLIPBOARD_SERVICE_H

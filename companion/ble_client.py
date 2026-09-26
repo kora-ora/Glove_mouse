@@ -127,9 +127,12 @@ class GloveLink:
             state, length = p.parse_status(bytes(data))
         except p.ProtocolError:
             return
-        # ถ้าเครื่องนี้เพิ่งส่งข้อความเอง ไม่ต้องแย่งดึงข้อมูลตัวเองกลับ
-        if time.monotonic() - self._last_sent_at < 2.0:
+
+        # ป้องกัน Race Condition: หากเครื่องนี้เพิ่งส่งข้อความเสร็จไปไม่เกิน 4 วินาที
+        # ไม่ต้องแย่งดึงข้อมูลตัวเองกลับมา (ป้องกันแย่งช่องสัญญาณกับเครื่องรับ)
+        if time.monotonic() - self._last_sent_at < 4.0:
             return
+
         if state == p.STATE_HAS and length > 0:
             task = asyncio.ensure_future(self._fetch())
             self._tasks.add(task)
@@ -153,26 +156,40 @@ class GloveLink:
         if not self.connected:
             return False, "ยังไม่ได้ต่อถุงมือ", 0.0
 
-        started = time.monotonic()
-        async with self._lock:
-            self._drain()
-            self._last_crc = p.crc32(data)
-            self._last_sent_at = time.monotonic()
-            try:
-                for packet in p.encode_message(self._next_id(), data, self._client.mtu_size):
-                    await self._write(packet)
-                reply = await asyncio.wait_for(self._inbox.get(), ACK_TIMEOUT)
-            except asyncio.TimeoutError:
-                return False, "ถุงมือไม่ตอบรับ (timeout)", 0.0
-            except Exception as exc:
-                return False, f"ส่งไม่สำเร็จ: {exc}", 0.0
-        elapsed_ms = (time.monotonic() - started) * 1000
+        reply = None
+        elapsed_ms = 0.0
 
-        ptype, _mid, _seq, payload = p.parse(reply)
-        if ptype == p.ACK:
-            return True, "ส่งแล้ว", elapsed_ms
-        code = payload[0] if payload else 0
-        return False, p.ERROR_NAMES.get(code, f"ถุงมือปฏิเสธ (code {code})"), 0.0
+        # ลองส่งสูงสุด 3 ครั้ง (หากถุงมือติดล็อกผู้เขียน/busy ชั่วคราวจากอีกเครื่อง)
+        for attempt in range(3):
+            started = time.monotonic()
+            async with self._lock:
+                self._drain()
+                self._last_crc = p.crc32(data)
+                try:
+                    for packet in p.encode_message(self._next_id(), data, self._client.mtu_size):
+                        await self._write(packet)
+                    reply = await asyncio.wait_for(self._inbox.get(), ACK_TIMEOUT)
+                except asyncio.TimeoutError:
+                    return False, "ถุงมือไม่ตอบรับ (timeout)", 0.0
+                except Exception as exc:
+                    return False, f"ส่งไม่สำเร็จ: {exc}", 0.0
+
+            elapsed_ms = (time.monotonic() - started) * 1000
+            ptype, _mid, _seq, payload = p.parse(reply)
+            if ptype == p.ACK:
+                # อัปเดตเวลาส่งหลังจากส่งและได้รับ ACK สำเร็จจริง เพื่อให้ช่วงเวลา 4.0s ป้องกันการดึงข้อมูลกลับเริ่มนับจากจุดนี้
+                self._last_sent_at = time.monotonic()
+                return True, "ส่งแล้ว", elapsed_ms
+
+            code = payload[0] if payload else 0
+            # หากถุงมือไม่ว่างเพราะอีกเครื่องกำลังเขียน (ERR_BAD_STATE) ให้รอ 0.3 วินาทีแล้วลองใหม่
+            if attempt < 2 and code == p.ERR_BAD_STATE:
+                await asyncio.sleep(0.3)
+                continue
+
+            return False, p.ERROR_NAMES.get(code, f"ถุงมือปฏิเสธ (code {code})"), 0.0
+
+        return False, "ถุงมือไม่ว่าง", 0.0
 
     async def _fetch(self):
         async with self._lock:
@@ -184,6 +201,7 @@ class GloveLink:
                 reassembler = p.Reassembler()
                 try:
                     await self._write(p.pack(p.GET, self._next_id()))
+                    # อ่านแพ็กเก็ตจนครบ END เพื่อให้ ESP32 เคลียร์สถานะส่งสมบูรณ์ ไม่ค้างท่อ
                     while data is None:
                         packet = await asyncio.wait_for(self._inbox.get(), ACK_TIMEOUT)
                         data = reassembler.feed(packet)

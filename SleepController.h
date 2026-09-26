@@ -4,26 +4,23 @@
 #include <Arduino.h>
 #include "OledStatusDisplay.h"
 
-// Idle mode แบบซอฟต์: ไม่มีการขยับ/ปุ่ม/แตะต่อเนื่องเกิน Config::IDLE_TIMEOUT_MS
-// -> ดับจอ OLED และให้ TaskSensor งดงานหนัก (อ่าน gyro/touch click/ส่ง BLE queue)
-// BLE ยังเชื่อมต่ออยู่ตลอด ไม่ใช่ chip sleep จริง
+// Software idle mode: turns off OLED display during inactivity to save power
 class SleepController {
 public:
   void begin(OledStatusDisplay *oled);
 
-  // เรียกทุกรอบของ TaskSensor
-  // hadActivity = packet รอบนี้มีการขยับหรือปุ่มเปลี่ยน, touchedNow = กำลังแตะอยู่
-  void tick(bool hadActivity, bool touchedNow);
+  // wakeTrigger = Touch sensors only (can wake from Idle and reset timer)
+  // keepAliveTrigger = Mouse motion/click (only resets timer while awake)
+  void tick(bool wakeTrigger, bool keepAliveTrigger);
 
   bool isIdle() const { return _idle; }
 
 private:
-  void enterIdle();
-  void exitIdle();
+  void setIdle(bool enable);
 
   OledStatusDisplay *_oled = nullptr;
-  bool _idle = false;
-  uint32_t _lastActivityMs = 0;
+  uint32_t           _lastActivityMs = 0;
+  bool               _idle           = false;
 };
 
 #endif // SLEEP_CONTROLLER_H

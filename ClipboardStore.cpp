@@ -1,19 +1,46 @@
 #include "ClipboardStore.h"
+#include <algorithm>
 
+// ==============================================================================
+// 1. RAII Mutex Helper (ปลดล็อกอัตโนมัติเมื่อจบสโคป หมดปัญหา Mutex ค้าง)
+// ==============================================================================
+namespace {
+class MutexLock {
+public:
+  explicit MutexLock(SemaphoreHandle_t mutex) : _mutex(mutex) {
+    if (_mutex) xSemaphoreTake(_mutex, portMAX_DELAY);
+  }
+  ~MutexLock() {
+    if (_mutex) xSemaphoreGive(_mutex);
+  }
+  MutexLock(const MutexLock &) = delete;
+  MutexLock &operator=(const MutexLock &) = delete;
+
+private:
+  SemaphoreHandle_t _mutex;
+};
+} // namespace
+
+// ==============================================================================
+// 2. Checksum Calculator
+// ==============================================================================
 uint32_t clipCrc32(const uint8_t *data, size_t len, uint32_t crc) {
   crc = ~crc;
-  for (size_t i = 0; i < len; i++) {
+  for (size_t i = 0; i < len; ++i) {
     crc ^= data[i];
-    for (uint8_t b = 0; b < 8; b++) {
+    for (uint8_t b = 0; b < 8; ++b) {
       crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
     }
   }
   return ~crc;
 }
 
+// ==============================================================================
+// 3. Lifecycle & Clear Methods
+// ==============================================================================
 void ClipboardStore::begin() {
   _mutex = xSemaphoreCreateMutex();
-  clearLocked();
+  clear();
 }
 
 void ClipboardStore::clearLocked() {
@@ -24,108 +51,116 @@ void ClipboardStore::clearLocked() {
 }
 
 void ClipboardStore::clear() {
-  xSemaphoreTake(_mutex, portMAX_DELAY);
+  MutexLock lock(_mutex);
   clearLocked();
-  xSemaphoreGive(_mutex);
 }
 
+// ==============================================================================
+// 4. Data Writing & Validation (ใช้ Early Exit ลด Indentation)
+// ==============================================================================
 ClipErr ClipboardStore::beginWrite(uint8_t msgId, uint16_t totalLen, uint32_t crc) {
-  xSemaphoreTake(_mutex, portMAX_DELAY);
-  clearLocked();  // ของเก่าถูกทิ้งเสมอ แม้รอบนี้จะล้มเหลว
-  ClipErr err = CLIP_OK;
+  MutexLock lock(_mutex);
+  clearLocked(); // ล้างของเก่าทิ้งทันทีเสมอ
+
   if (totalLen == 0 || totalLen > Config::CLIP_MAX_BYTES) {
-    err = CLIP_TOO_LARGE;
-  } else {
-    _msgId = msgId;
-    _expectedLen = totalLen;
-    _expectedCrc = crc;
-    _state = CLIP_STATE_RECEIVING;
-    _stamp = millis();
+    return CLIP_TOO_LARGE;
   }
-  xSemaphoreGive(_mutex);
-  return err;
+
+  _msgId       = msgId;
+  _expectedLen = totalLen;
+  _expectedCrc = crc;
+  _state       = CLIP_STATE_RECEIVING;
+  _stamp       = millis();
+
+  return CLIP_OK;
 }
 
 ClipErr ClipboardStore::append(uint8_t msgId, uint16_t seq, const uint8_t *data, size_t len) {
-  xSemaphoreTake(_mutex, portMAX_DELAY);
-  ClipErr err = CLIP_OK;
+  MutexLock lock(_mutex);
+
+  // ตรวจสอบความถูกต้องแบบ Guard Clauses ทีละเงื่อนไข
   if (_state != CLIP_STATE_RECEIVING || msgId != _msgId) {
-    err = CLIP_BAD_STATE;
-  } else if (seq != _nextSeq) {
-    err = CLIP_BAD_SEQ;
-  } else if (_len + len > _expectedLen) {
-    err = CLIP_TOO_LARGE;
-  } else {
-    memcpy(_buf + _len, data, len);
-    _len += len;
-    _nextSeq++;
-    _stamp = millis();
+    return CLIP_BAD_STATE;
   }
-  if (err != CLIP_OK && _state == CLIP_STATE_RECEIVING && msgId == _msgId) clearLocked();
-  xSemaphoreGive(_mutex);
-  return err;
+  if (seq != _nextSeq) {
+    clearLocked();
+    return CLIP_BAD_SEQ;
+  }
+  if (_len + len > _expectedLen) {
+    clearLocked();
+    return CLIP_TOO_LARGE;
+  }
+
+  // นำข้อมูลเข้า Buffer
+  memcpy(_buf + _len, data, len);
+  _len     += len;
+  _nextSeq++;
+  _stamp   = millis();
+
+  return CLIP_OK;
 }
 
 ClipErr ClipboardStore::commit(uint8_t msgId) {
-  xSemaphoreTake(_mutex, portMAX_DELAY);
-  ClipErr err = CLIP_OK;
+  MutexLock lock(_mutex);
+
   if (_state != CLIP_STATE_RECEIVING || msgId != _msgId) {
-    err = CLIP_BAD_STATE;
-  } else if (_len != _expectedLen) {
-    err = CLIP_BAD_SEQ;  // ชิ้นไม่ครบ
-    clearLocked();
-  } else if (clipCrc32(_buf, _len) != _expectedCrc) {
-    err = CLIP_BAD_CRC;
-    clearLocked();
-  } else {
-    _state = CLIP_STATE_HAS;
-    _stamp = millis();
+    return CLIP_BAD_STATE;
   }
-  xSemaphoreGive(_mutex);
-  return err;
+  if (_len != _expectedLen) {
+    clearLocked();
+    return CLIP_BAD_SEQ;
+  }
+  if (clipCrc32(_buf, _len) != _expectedCrc) {
+    clearLocked();
+    return CLIP_BAD_CRC;
+  }
+
+  _state = CLIP_STATE_HAS;
+  _stamp = millis();
+  return CLIP_OK;
 }
 
+// ==============================================================================
+// 5. Data Reading & Getters
+// ==============================================================================
 size_t ClipboardStore::copyOut(size_t offset, uint8_t *dst, size_t maxLen) {
-  xSemaphoreTake(_mutex, portMAX_DELAY);
-  size_t n = 0;
-  if (_state == CLIP_STATE_HAS && offset < _len) {
-    n = min(maxLen, (size_t)(_len - offset));
-    memcpy(dst, _buf + offset, n);
+  MutexLock lock(_mutex);
+
+  if (_state != CLIP_STATE_HAS || offset >= _len) {
+    return 0;
   }
-  xSemaphoreGive(_mutex);
-  return n;
+
+  size_t bytesToCopy = std::min(maxLen, static_cast<size_t>(_len - offset));
+  memcpy(dst, _buf + offset, bytesToCopy);
+  return bytesToCopy;
 }
 
 uint16_t ClipboardStore::size() {
-  xSemaphoreTake(_mutex, portMAX_DELAY);
-  uint16_t n = (_state == CLIP_STATE_HAS) ? _len : 0;
-  xSemaphoreGive(_mutex);
-  return n;
+  MutexLock lock(_mutex);
+  return (_state == CLIP_STATE_HAS) ? _len : 0;
 }
 
 uint32_t ClipboardStore::crc() {
-  xSemaphoreTake(_mutex, portMAX_DELAY);
-  uint32_t c = _expectedCrc;
-  xSemaphoreGive(_mutex);
-  return c;
+  MutexLock lock(_mutex);
+  return _expectedCrc;
 }
 
 ClipState ClipboardStore::state() {
-  xSemaphoreTake(_mutex, portMAX_DELAY);
-  ClipState s = _state;
-  xSemaphoreGive(_mutex);
-  return s;
+  MutexLock lock(_mutex);
+  return _state;
 }
 
 bool ClipboardStore::expireIfNeeded() {
-  xSemaphoreTake(_mutex, portMAX_DELAY);
-  bool changed = false;
+  MutexLock lock(_mutex);
+
   uint32_t age = millis() - _stamp;
-  if ((_state == CLIP_STATE_HAS && age >= Config::CLIP_TTL_MS) ||
-      (_state == CLIP_STATE_RECEIVING && age >= Config::CLIP_RX_TIMEOUT_MS)) {
+  bool isCompletedExpired = (_state == CLIP_STATE_HAS && age >= Config::CLIP_TTL_MS);
+  bool isReceivingTimeout = (_state == CLIP_STATE_RECEIVING && age >= Config::CLIP_RX_TIMEOUT_MS);
+
+  if (isCompletedExpired || isReceivingTimeout) {
     clearLocked();
-    changed = true;
+    return true;
   }
-  xSemaphoreGive(_mutex);
-  return changed;
+
+  return false;
 }

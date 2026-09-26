@@ -30,6 +30,13 @@ ERROR_NAMES = {
     6: "ไม่มีข้อความบนถุงมือ",
 }
 
+ERR_TOO_BIG = 1
+ERR_BAD_SEQ = 2
+ERR_BAD_CRC = 3
+ERR_TIMEOUT = 4
+ERR_BAD_STATE = 5
+ERR_EMPTY = 6
+
 
 class ProtocolError(Exception):
     pass

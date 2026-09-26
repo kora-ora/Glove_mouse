@@ -59,6 +59,7 @@ class App:
         self.paused = False
         self.stopping = False
         self._ignore_seq = None  # หมายเลข clipboard sequence ที่แอปเป็นคนเขียนเอง (ไม่ใช่การ copy ใหม่)
+        self._last_synced_text = None  # ข้อความล่าสุดที่ sync (ใช้กัน Ping-Pong loop เมื่อ sequence ขยับแต่ข้อความเดิม)
         self._reconnect_count = 0  # จำนวนครั้งที่ลิงก์ BLE ต่อใหม่ (นับตั้งแต่เปิดแอป) -> field4
         self.ts_worker = ThingSpeakWorker(thingspeak_key)  # ไม่ใส่ key = เธรดนี้ไม่ทำอะไรเลย (ดู thingspeak_worker.py)
         self.ts_worker.start()
@@ -170,6 +171,7 @@ class App:
     def _on_remote_text(self, text):
         if self.paused:
             return
+        self._last_synced_text = text  # จดจำข้อความที่เพิ่งรับ เพื่อไม่ให้วนส่งกลับ
         try:
             # จำหมายเลข sequence หลังเขียน: การเปลี่ยนแปลงนี้มาจากเราเอง ห้ามส่งกลับไปเป็น "การ copy ใหม่"
             self._ignore_seq = clip.write_text(text)
@@ -194,8 +196,14 @@ class App:
             text = await asyncio.get_running_loop().run_in_executor(None, clip.read_text)
             if text is None:
                 continue  # ไม่ใช่ข้อความล้วน / password manager ห้ามยุ่ง / ว่าง
+
+            # ป้องกัน Ping-Pong Loop: หากเนื้อหาเป็นข้อความเดิมที่เพิ่ง sync มา (แม้ sequence เปลี่ยนจาก Win+V) ไม่ส่งซ้ำ
+            if text == self._last_synced_text:
+                continue
+
             ok, message, latency_ms = await self.link.send_text(text)
             if ok:
+                self._last_synced_text = text  # บันทึกข้อความที่ส่งสำเร็จ
                 log.info("ส่งข้อความ %d ตัวอักษรแล้ว (%.0f ms)", len(text), latency_ms)
                 self.ts_worker.submit(field1=len(text), field5=round(latency_ms, 1))
             else:
