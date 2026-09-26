@@ -43,7 +43,7 @@ uint8_t TouchTapDetector::update() {
 
   // ปล่อยนิ้วเกิน tap window -> ส่งผลรวมการแตะ
   if (_taps > 0 && !_touched && now - _lastEdgeMs >= Config::TOUCH_TAP_WINDOW_MS) {
-    const uint8_t count = (_taps >= 2) ? 2 : 1;
+    const uint8_t count = _taps;
     _taps = 0;
     return count;
   }

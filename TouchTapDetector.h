@@ -11,7 +11,7 @@ class TouchTapDetector {
 public:
   void begin(uint8_t pin);
 
-  // คืน 0 = ไม่มีเหตุการณ์, 1 = แตะครั้งเดียว, 2 = แตะสองครั้งขึ้นไป (เรียกซ้ำได้บ่อย ไม่ block)
+  // คืน 0 = ไม่มีเหตุการณ์, 1..N = จำนวนครั้งที่แตะติดต่อกันใน tap window (เรียกซ้ำได้บ่อย ไม่ block)
   uint8_t update();
 
   uint32_t rawValue() const;  // ค่า touchRead ปัจจุบัน (ใช้ดูค่าตอนปรับ threshold)

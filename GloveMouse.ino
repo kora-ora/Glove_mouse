@@ -36,6 +36,7 @@ SemaphoreHandle_t mpuSemaphore     = nullptr;
 volatile float   gDebugGx = 0, gDebugGy = 0, gDebugGz = 0;
 volatile int8_t  gDebugDx = 0, gDebugDy = 0;
 volatile uint8_t gDebugButtons = 0;
+volatile bool    gRequestCalibration = false;
 
 // ==============================================================================
 // 2. Hardware Interrupts & Bus Recovery
@@ -88,6 +89,9 @@ void handleSerialCommands(uint8_t &taps) {
       case 's':
         taps = 2;
         break;
+      case 'c':
+        taps = 4;
+        break;
       case 'b':
         Serial.println(NimBLEDevice::deleteAllBonds() ? "🧹 [BLE] ล้าง bond แล้ว" : "⚠️ ล้าง bond ไม่สำเร็จ");
         break;
@@ -106,7 +110,7 @@ void handleSerialCommands(uint8_t &taps) {
   }
 }
 
-// จัดการ Action จากการแตะคำสั่งลัด (Single / Double Tap)
+// จัดการ Action จากการแตะคำสั่งลัด (1x Pause/Resume, 2x Switch Host, 4x Calibrate)
 void handleTapGestures(uint8_t taps) {
   if (taps == 1) {
     buzzer.beep(Config::BUZZER_TAP_MS);
@@ -115,9 +119,13 @@ void handleTapGestures(uint8_t taps) {
     } else {
       hidMouse.pause();
     }
-  } else if (taps >= 2) {
+  } else if (taps == 2) {
     buzzer.beep(Config::BUZZER_SWITCH_MS);
     hidMouse.switchHost();
+  } else if (taps == 4) {
+    buzzer.beep(Config::BUZZER_SWITCH_MS);
+    gRequestCalibration = true;
+    Serial.println("🎯 [GESTURE] แตะ 4 ครั้ง -> ร้องขอ Calibrate Gyro ใหม่");
   }
 }
 
@@ -131,6 +139,17 @@ void TaskSensor(void *pvParameters) {
   Serial.println("🟢 [TaskSensor] ทำงานบน Core " + String(xPortGetCoreID()));
 
   for (;;) {
+    // จัดการคำขอ Calibrate Gyro ใหม่ (จาก Gesture แตะ 4 ครั้ง หรือ Serial CLI)
+    if (gRequestCalibration) {
+      gRequestCalibration = false;
+      oled.showCalibrating();
+      buzzer.beep(Config::BUZZER_SWITCH_MS);
+      mpu.calibrate();
+      buzzer.beep(Config::BUZZER_TAP_MS);
+      motion.resetScroll();
+      continue;
+    }
+
     // Guard clause: หากไม่มีสัญญาณ interrupt ให้ข้ามรอบไป
     if (xSemaphoreTake(mpuSemaphore, portMAX_DELAY) != pdTRUE) {
       continue;
