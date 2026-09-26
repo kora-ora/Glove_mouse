@@ -127,7 +127,7 @@ void ClipboardService::handleStart(uint16_t conn, uint8_t msgId, const uint8_t *
 
   // ป้องกันการแย่งเขียน (Writer Lock): หากมีเครื่องอื่นกำลังอัปโหลดค้างอยู่และยังไม่หมดเวลา
   if (_writerConn != BLE_HS_CONN_HANDLE_NONE && _writerConn != conn) {
-    if (millis() - _writerStartMs < Config::CLIP_TIMEOUT_MS) {
+    if (millis() - _writerStartMs < Config::CLIP_RX_TIMEOUT_MS) {
       sendControl(conn, PKT_NACK, msgId, CLIP_BAD_STATE);
       return;
     }
@@ -273,9 +273,9 @@ void ClipboardService::service() {
     Serial.println("📋 [Clipboard] ล้างข้อความ (หมดเวลา)");
   }
 
-  // ปลดล็อกผู้เขียนหากหมดเวลารับส่ง (Config::CLIP_TIMEOUT_MS)
+  // ปลดล็อกผู้เขียนหากหมดเวลารับส่ง (Config::CLIP_RX_TIMEOUT_MS)
   if (_writerConn != BLE_HS_CONN_HANDLE_NONE) {
-    if (millis() - _writerStartMs > Config::CLIP_TIMEOUT_MS) {
+    if (millis() - _writerStartMs > Config::CLIP_RX_TIMEOUT_MS) {
       _writerConn = BLE_HS_CONN_HANDLE_NONE;
       _store.clear();
       updateStatus();
