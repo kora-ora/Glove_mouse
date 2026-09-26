@@ -35,7 +35,9 @@ SemaphoreHandle_t mpuSemaphore     = nullptr;
 // Debug Variables
 volatile float   gDebugGx = 0, gDebugGy = 0, gDebugGz = 0;
 volatile int8_t  gDebugDx = 0, gDebugDy = 0;
+volatile int8_t  gDebugWheel = 0;
 volatile uint8_t gDebugButtons = 0;
+volatile bool    gDebugScrolling = false;
 volatile bool    gRequestCalibration = false;
 
 // ==============================================================================
@@ -102,8 +104,9 @@ void handleSerialCommands(uint8_t &taps) {
                       Config::PIN_TOUCH_MIDDLE, (unsigned long)touchClick.rawMiddle());
         break;
       case 'g':
-        Serial.printf("🕹️ [GYRO] gx=%.4f gy=%.4f gz=%.4f -> dx=%d dy=%d buttons=0x%02X paused=%s\n",
-                      gDebugGx, gDebugGy, gDebugGz, gDebugDx, gDebugDy, gDebugButtons, 
+        Serial.printf("🕹️ [GYRO] gx=%.4f gy=%.4f gz=%.4f -> dx=%d dy=%d wheel=%d buttons=0x%02X scroll=%s paused=%s\n",
+                      gDebugGx, gDebugGy, gDebugGz, gDebugDx, gDebugDy, gDebugWheel, gDebugButtons, 
+                      gDebugScrolling ? "ใช่" : "ไม่",
                       hidMouse.isPaused() ? "ใช่" : "ไม่");
         break;
     }
@@ -173,22 +176,39 @@ void TaskSensor(void *pvParameters) {
     MousePacket packet = motion.process(gx, gy, gz, mpu);
     packet.buttons |= touchClick.update();
 
-    if (touchClick.isBothPressed()) {
+    bool isBoth = touchClick.isBothPressed();
+    static bool wasScrolling = false;
+
+    if (isBoth) {
+      if (!wasScrolling) {
+        wasScrolling = true;
+        Serial.println("📜 [SCROLL] เข้าสู่โหมด 2-finger scroll");
+      }
       // โหมด 2-finger scroll: ล็อกตำแหน่งเคอร์เซอร์ X/Y และปุ่มคลิก แปลงการก้ม-เงย (gy) เป็นลูกกลิ้ง wheel
       packet.dx = 0;
       packet.dy = 0;
       packet.buttons = 0;
       packet.wheel = motion.processScroll(gy, mpu);
+
+      if (packet.wheel != 0) {
+        Serial.printf("📜 [SCROLL] gy=%.3f (offset=%.3f) -> wheel=%d\n", gy, mpu.offsetY, packet.wheel);
+      }
     } else {
+      if (wasScrolling) {
+        wasScrolling = false;
+        Serial.println("🖱️ [MOUSE] ออกจากโหมด scroll -> กลับสู่โหมดเมาส์ปกติ");
+      }
       motion.resetScroll();
     }
 
     bool hasMoved = (packet.dx != 0 || packet.dy != 0 || packet.wheel != 0);
 
-    // กรณีโหมดทำงานปกติ
+    // อัปเดต Debug Variables สำหรับ CLI
     gDebugGx = gx; gDebugGy = gy; gDebugGz = gz;
     gDebugDx = packet.dx; gDebugDy = packet.dy;
+    gDebugWheel = packet.wheel;
     gDebugButtons = packet.buttons;
+    gDebugScrolling = isBoth;
 
     oled.update(hidMouse.isConnected(), hidMouse.activeSlot(), hidMouse.isPaused(), packet);
 
